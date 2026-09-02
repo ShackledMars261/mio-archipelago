@@ -1,0 +1,52 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<TargetFramework>net8.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Archipelago.MultiClient.Net" Version="6.7.1" />
+		<PackageReference Include="Archipelago.MultiClient.Net.Analyzers" Version="2.0.3">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+		<PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+		<PackageReference Include="PolyHook2.NET" Version="1.1.3" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Reference Include="MioModdingApi">
+			<HintPath>../MioModdingApi/bin/Debug/net8.0/MioModdingApi.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="MioModLoader">
+			<HintPath>../lib/MioModLoader.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="MioBinds">
+			<HintPath>../lib/MioBinds.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+	</ItemGroup>
+
+	<Target Name="FlattenNativeAssets" BeforeTargets="PostBuild">
+		<ItemGroup>
+			<NativeAsset Include="$(TargetDir)runtimes\win-x64\native\*.dll" />
+			<NativeAsset Include="$(TargetDir)runtimes\win\native\*.dll" />
+		</ItemGroup>
+
+		<Copy SourceFiles="@(NativeAsset)"
+			  DestinationFolder="$(TargetDir)"
+			  SkipUnchangedFiles="true" />
+
+		<Message Importance="high"
+				 Text="Flattened native: %(NativeAsset.Filename)%(NativeAsset.Extension)" />
+	</Target>
+
+	<Target Name="PostBuild" AfterTargets="PostBuildEvent">
+		<Exec Command="call &quot;$(ProjectDir)post-build.bat&quot; &quot;$(TargetPath)&quot; &quot;$(ProjectName)&quot; &quot;$(TargetDir)&quot;" WorkingDirectory="$(ProjectDir)" />
+	</Target>
+</Project>

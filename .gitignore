@@ -1,0 +1,41 @@
+# Build directories
+build/
+install/
+out/
+x64/
+*/obj/Debug
+*/obj/Release
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# Build artifacts
+*.obj
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.dll
+*.exe
+
+# Vcpkg
+vcpkg_installed/
+
+# Doxygen
+Doxyfile.bak
+html/
+latex/
+
+# Custom
+.vscode/
+*.code-workspace
+header.txt
+
+obj/
+bin/
+
+!lib/MioBinds.dll
+!lib/MioModdingApi.dll
+!lib/MioModLoader.dll
