@@ -49,4 +49,26 @@
 	<Target Name="PostBuild" AfterTargets="PostBuildEvent">
 		<Exec Command="call &quot;$(ProjectDir)post-build.bat&quot; &quot;$(TargetPath)&quot; &quot;$(ProjectName)&quot; &quot;$(TargetDir)&quot;" WorkingDirectory="$(ProjectDir)" />
 	</Target>
+
+	<PropertyGroup>
+		<DeployToGame Condition="'$(DeployToGame)' == ''">true</DeployToGame>
+		<GameModsDir Condition="'$(GameModsDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\MIO\mods\MioAP</GameModsDir>
+	</PropertyGroup>
+
+	<Target Name="DeployToGame" AfterTargets="PostBuild" Condition="'$(DeployToGame)' == 'true'">
+		<PropertyGroup>
+			<StageDir>$(ProjectDir)bin\$(ProjectName)</StageDir>
+		</PropertyGroup>
+
+		<Exec Command="robocopy &quot;$(StageDir)&quot; &quot;$(GameModsDir)&quot; /MIR /NFL /NDL /NJH /NJS /NP"
+			  IgnoreExitCode="true"
+			  ContinueOnError="true">
+			<Output TaskParameter="ExitCode" PropertyName="RobocopyExit" />
+		</Exec>
+
+		<Warning Condition="'$(RobocopyExit)' &gt;= 8"
+				 Text="Deploy to &quot;$(GameModsDir)&quot; failed (robocopy $(RobocopyExit)). Is the game running?" />
+		<Message Condition="'$(RobocopyExit)' &lt; 8" Importance="high"
+				 Text="Deployed to $(GameModsDir)" />
+	</Target>
 </Project>
