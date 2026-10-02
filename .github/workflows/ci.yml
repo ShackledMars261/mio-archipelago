@@ -21,10 +21,10 @@ permissions:
   contents: write
 
 env:
-  PROJECT: MioAP/MioAP.csproj
+  PROJECT: MioAP.csproj
   MOD_NAME: MioAP
   # Where post-build.bat assembles the mod folder (ProjectDir\bin\ProjectName).
-  STAGE_DIR: MioAP/bin/MioAP
+  STAGE_DIR: bin/MioAP
 
 jobs:
   release:
