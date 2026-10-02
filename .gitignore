@@ -37,6 +37,7 @@ obj/
 bin/
 
 !lib/MioBinds.dll
+!lib/MioBinds.xml
 !lib/MioModdingApi.dll
 !lib/MioModLoader.dll
 

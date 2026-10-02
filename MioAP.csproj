@@ -19,7 +19,7 @@
 
 	<ItemGroup>
 		<Reference Include="MioModdingApi">
-			<HintPath>../MioModdingApi/bin/Debug/net8.0/MioModdingApi.dll</HintPath>
+			<HintPath>../lib/MioModdingApi.dll</HintPath>
 			<Private>false</Private>
 		</Reference>
 		<Reference Include="MioModLoader">
@@ -51,6 +51,8 @@
 	</Target>
 
 	<PropertyGroup>
+		<!-- CI=true on GitHub Actions, where there is no game to deploy into. -->
+		<DeployToGame Condition="'$(DeployToGame)' == '' And '$(CI)' == 'true'">false</DeployToGame>
 		<DeployToGame Condition="'$(DeployToGame)' == ''">true</DeployToGame>
 		<GameModsDir Condition="'$(GameModsDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\MIO\mods\MioAP</GameModsDir>
 	</PropertyGroup>

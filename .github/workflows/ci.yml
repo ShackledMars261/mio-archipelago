@@ -1,0 +1,109 @@
+# Builds the mod and publishes a GitHub release when a version tag is pushed.
+#
+#     git tag v0.0.1 && git push origin v0.0.1
+#
+# Windows runner, deliberately: the build stages through post-build.bat, and the
+# mod ships win-x64 native DLLs (PolyHook's) that FlattenNativeAssets pulls out
+# of the runtimes/ folder.
+#
+# Builds on a runner set CI=true, which the csproj uses to skip DeployToGame -
+# there is no Steam install to mirror into.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# The default token is read-only; creating a release needs write.
+permissions:
+  contents: write
+
+env:
+  PROJECT: MioAP/MioAP.csproj
+  MOD_NAME: MioAP
+  # Where post-build.bat assembles the mod folder (ProjectDir\bin\ProjectName).
+  STAGE_DIR: MioAP/bin/MioAP
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Derive version from the tag
+        id: ver
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          # A hyphen means a prerelease label: v0.2.0-rc1, v0.2.0-beta.
+          if [[ "$version" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Restore
+        run: dotnet restore ${{ env.PROJECT }}
+
+      - name: Build
+        run: >
+          dotnet build ${{ env.PROJECT }}
+          --configuration Release
+          --no-restore
+          -p:Version=${{ steps.ver.outputs.version }}
+          -p:ContinuousIntegrationBuild=true
+
+      # post-build.bat swallows a lot, so confirm the staged folder is real
+      # rather than shipping an empty zip.
+      - name: Verify the staged mod folder
+        shell: pwsh
+        run: |
+          if (-not (Test-Path '${{ env.STAGE_DIR }}')) {
+              throw 'Nothing staged at ${{ env.STAGE_DIR }} - did post-build.bat run?'
+          }
+
+          Get-ChildItem -Recurse -File '${{ env.STAGE_DIR }}' |
+              Select-Object @{n='File';e={ $_.FullName.Replace((Get-Location).Path + '\', '') }}, Length |
+              Format-Table -AutoSize
+
+          foreach ($required in '${{ env.MOD_NAME }}.dll', 'MioBinds.dll') {
+              if (-not (Test-Path (Join-Path '${{ env.STAGE_DIR }}' $required))) {
+                  throw "$required is missing from the staged folder"
+              }
+          }
+
+      - name: Zip
+        shell: pwsh
+        run: |
+          $zip = '${{ env.MOD_NAME }}-${{ github.ref_name }}.zip'
+
+          # The folder itself, not its contents, so the archive holds MioAP\...
+          # and unzips straight into the game's mods directory.
+          Compress-Archive -Path '${{ env.STAGE_DIR }}' -DestinationPath $zip
+          "ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      # Keeps the build retrievable even if the release step fails.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.MOD_NAME }}-${{ github.ref_name }}
+          path: ${{ env.ZIP }}
+
+      - name: Publish the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ steps.ver.outputs.prerelease }}
+        run: |
+          flags=(--title "$GITHUB_REF_NAME" --generate-notes --draft)
+          [[ "$PRERELEASE" == "true" ]] && flags+=(--prerelease)
+
+          gh release create "$GITHUB_REF_NAME" "$ZIP" "${flags[@]}"
