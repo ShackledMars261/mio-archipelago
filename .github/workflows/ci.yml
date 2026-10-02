@@ -75,10 +75,31 @@ jobs:
               Select-Object @{n='File';e={ $_.FullName.Replace((Get-Location).Path + '\', '') }}, Length |
               Format-Table -AutoSize
 
-          foreach ($required in '${{ env.MOD_NAME }}.dll', 'MioBinds.dll') {
-              if (-not (Test-Path (Join-Path '${{ env.STAGE_DIR }}' $required))) {
-                  throw "$required is missing from the staged folder"
-              }
+          # Everything the loader expects to find in the mod folder. The natives
+          # come from PolyHook via FlattenNativeAssets; the .json files from Mod\.
+          $required = @(
+              'Archipelago.MultiClient.Net.dll'
+              'asmjit.dll'
+              'asmtk.dll'
+              'client.json'
+              'cpolyhook2.dll'
+              'MioAP.dll'
+              'mod.json'
+              'nacre_carcass.json'
+              'Newtonsoft.Json.dll'
+              'PolyHook_2.dll'
+              'PolyHook2.NET.dll'
+              'Zydis.dll'
+          )
+
+          # Report every absence at once - one-at-a-time is a slow way to find
+          # out three things are missing.
+          $missing = $required | Where-Object {
+              -not (Test-Path (Join-Path '${{ env.STAGE_DIR }}' $_))
+          }
+
+          if ($missing) {
+              throw "Missing from the staged folder: $($missing -join ', ')"
           }
 
       - name: Zip
