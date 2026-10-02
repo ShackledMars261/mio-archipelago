@@ -170,6 +170,8 @@ namespace MioAP
         {
             if (Diagnostics) BuildSymbolTable();
 
+            On.MioGame.On_Metagame.go_to_game.Prefix += Go_to_game_Prefix;
+
             // Per-frame pump for queued Archipelago work.
             On.MioGame.On_Game.fixed_update.Prefix += fixed_update_Prefix;
 
@@ -185,6 +187,11 @@ namespace MioAP
             InitScopeHooks();
 
             LogMessage("[hooks] installed");
+        }
+
+        private unsafe void Go_to_game_Prefix(Metagame* self, Metagame.Main_menu.Action action)
+        {
+            LogMessage("go to game called");
         }
 
         /// <summary>

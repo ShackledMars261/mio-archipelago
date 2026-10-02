@@ -7,6 +7,15 @@ using System.Threading;
 
 namespace MioAP
 {
+    /// <summary>Where the Archipelago session currently stands.</summary>
+    internal enum ApState
+    {
+        Disconnected,
+        Connecting,
+        Connected,
+        Failed,
+    }
+
     /// <summary>
     /// Owns the Archipelago session and the boundary between its threads and the
     /// game's.
@@ -15,8 +24,8 @@ namespace MioAP
     /// exactly one thing: enqueue. Nothing touches the game's save from there. The
     /// game thread drains those queues once per fixed_update, which is the only
     /// place save writes happen, so no lock is ever held across native code.
-    /// Connecting also runs on its own thread, so the GUI never stalls on a bad
-    /// host or a slow handshake.
+    /// Connecting also runs on its own thread, so neither the GUI nor the save
+    /// gate stalls on a bad host or a slow handshake.
     ///
     /// ITEM IDENTITY. Grants are keyed on an item's position in the received
     /// stream, not its item id. Filler items (both nacres) share a single id and
@@ -30,6 +39,16 @@ namespace MioAP
     /// is cheap, and the watermark plus the idempotent shadow writes make it safe.
     /// Location checks are deduplicated locally and, if we aren't connected yet,
     /// deferred rather than dropped.
+    ///
+    /// STATE. SaveGate holds the menu-to-game transition until a connection
+    /// resolves, so it needs to tell "still trying" from "failed" - hence a state
+    /// enum rather than a bool. CurrentDetails exposes what actually worked, so
+    /// the gate can remember it against the save slot.
+    ///
+    /// NOTIFYING THE PLAYER. A successful connection is announced from here, so
+    /// it reads the same whoever started it - the menu or the save gate. The GUI
+    /// isn't constructed yet when this is, so the toast sink is handed over
+    /// afterwards rather than taken in the constructor.
     /// </summary>
     internal class ArchipelagoManager
     {
@@ -37,7 +56,10 @@ namespace MioAP
         private readonly DataManager dataManager;
 
         private ArchipelagoSession? _session;
-        private volatile bool _connected;
+
+        private volatile ApState _state = ApState.Disconnected;
+        private volatile string _lastError = "";
+        private volatile ConnectionDetails? _currentDetails;
 
         /// <summary>An item from AP, tagged with its position in the received stream.</summary>
         private readonly record struct PendingItem(int Index, long ItemId, string Sender);
@@ -60,7 +82,20 @@ namespace MioAP
         private readonly HashSet<long> _sentChecks = new();
         private readonly object _sentLock = new();
 
-        public bool IsConnected => _connected;
+        public ApState State => _state;
+        public bool IsConnected => _state == ApState.Connected;
+
+        /// <summary>Why the last connection attempt failed; empty if none has.</summary>
+        public string LastError => _lastError;
+
+        /// <summary>
+        /// The details of the live connection, for SaveGate to store against the
+        /// save slot. Null until a connection has succeeded.
+        /// </summary>
+        public ConnectionDetails? CurrentDetails => _currentDetails;
+
+        // Set after construction; see SetToastSink.
+        private Action<string>? _showToast;
 
         public ArchipelagoManager(Action<string> loggingCBMethod, DataManager dataManager)
         {
@@ -68,14 +103,42 @@ namespace MioAP
             this.dataManager = dataManager;
         }
 
+        /// <summary>
+        /// Supplies the on-screen notification sink. Separate from the constructor
+        /// because the GUI is built after this manager; until it's called,
+        /// notifications are simply dropped.
+        /// </summary>
+        public void SetToastSink(Action<string> showToast) => _showToast = showToast;
+
         private void LogMessage(string message) => _loggingCBMethod?.Invoke(message);
 
         /// <summary>
-        /// Non-blocking. Starts the connection on a background thread so the
-        /// caller (the GUI, on the render thread) never stalls on network I/O.
+        /// Notifies the player. Called from the connect thread, so it must not
+        /// throw back into it - GuiManager only enqueues, but the sink is
+        /// swappable, so guard it anyway.
+        /// </summary>
+        private void Toast(string message)
+        {
+            try { _showToast?.Invoke(message); }
+            catch (Exception ex) { LogMessage("[AP] toast failed: " + ex); }
+        }
+
+        /// <summary>
+        /// Non-blocking. Starts the connection on a background thread so the caller
+        /// - the GUI on the render thread, or the save gate mid-transition - never
+        /// stalls on network I/O. Ignored if a connection is already up or underway.
         /// </summary>
         public void Connect(string hostname, int port, string username, string password)
         {
+            if (_state == ApState.Connecting || _state == ApState.Connected)
+            {
+                LogMessage($"[AP] ignoring connect request; already {_state}");
+                return;
+            }
+
+            _state = ApState.Connecting;
+            _lastError = "";
+
             var t = new Thread(() => ConnectBlocking(hostname, port, username, password))
             {
                 Name = "MioAP-Connect",
@@ -109,25 +172,52 @@ namespace MioAP
                 if (!result.Successful)
                 {
                     var failure = (LoginFailure)result;
+
+                    // Keep a short reason for the UI, and log the full detail.
+                    string reason = failure.Errors.Length > 0
+                        ? failure.Errors[0]
+                        : failure.ErrorCodes.Length > 0
+                            ? failure.ErrorCodes[0].ToString()
+                            : "unknown error";
+
                     string msg = $"Failed to connect to {hostname}:{port} as {username}:";
                     foreach (string error in failure.Errors) msg += $"\n    {error}";
                     foreach (ConnectionRefusedError error in failure.ErrorCodes) msg += $"\n    {error}";
                     LogMessage(msg);
+
+                    Fail(reason);
                     return;
                 }
 
                 _session = session;
-                _connected = true;
+                _currentDetails = new ConnectionDetails
+                {
+                    Host = hostname,
+                    Port = port,
+                    Slot = username,
+                    Password = password,
+                };
+                _state = ApState.Connected;
 
                 var success = (LoginSuccessful)result;
                 LogMessage($"Connected to {hostname}:{port} as \"{username}\". (Slot #{success.Slot})");
+                Toast($"Connected to Archipelago as {username}");
 
                 ResyncFromServer();
             }
             catch (Exception ex)
             {
                 LogMessage("Connect failed: " + ex);
+                Fail(ex.GetBaseException().Message);
             }
+        }
+
+        private void Fail(string reason)
+        {
+            _lastError = reason;
+            _currentDetails = null;
+            _session = null;
+            _state = ApState.Failed;
         }
 
         private void OnMessageReceived(Archipelago.MultiClient.Net.MessageLog.Messages.LogMessage message)
@@ -235,7 +325,7 @@ namespace MioAP
                 }
             }
 
-            if (!_connected || _session == null)
+            if (!IsConnected || _session == null)
             {
                 _deferredChecks.Enqueue(locationId);
                 LogMessage($"[AP] not connected; deferring check for location {locationId}");

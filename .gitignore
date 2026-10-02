@@ -39,3 +39,5 @@ bin/
 !lib/MioBinds.dll
 !lib/MioModdingApi.dll
 !lib/MioModLoader.dll
+
+**/saved_connections.json
