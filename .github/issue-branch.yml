@@ -1,4 +1,18 @@
 branchName: short
+openDraftPR: true
 autoLinkIssue: true
 autoCloseIssue: true
 autoDeleteBranch: true
+
+copyIssueLabelsToPR: true
+copyIssueDescriptionToPR: true
+copyIssueAssigneeToPR: true
+
+conventionalPrTitles: true
+conventionalStyle: semver-no-gitmoji
+
+branches:
+  - label: bug
+    prefix: 'bugfix/'
+  - label: enhancement
+    prefix: 'feature/'
