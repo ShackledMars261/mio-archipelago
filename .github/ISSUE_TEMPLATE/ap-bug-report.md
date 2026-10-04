@@ -2,8 +2,8 @@
 name: AP Bug Report
 about: Create a report to let us know about a bug in the mod.
 title: "[BUG]"
-labels: bug
-assignees: ShackledMars261
+labels: bug, enhancement
+assignees: ''
 type: Bug
 
 ---
