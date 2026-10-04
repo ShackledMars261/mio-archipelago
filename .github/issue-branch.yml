@@ -8,6 +8,8 @@ copyIssueLabelsToPR: true
 copyIssueDescriptionToPR: true
 copyIssueAssigneeToPR: true
 
+prSkipCI: true
+
 conventionalPrTitles: true
 conventionalStyle: semver-no-gitmoji
 
