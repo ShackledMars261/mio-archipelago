@@ -19,9 +19,8 @@ We use the GitHub issue tracker to manage bugs and features. Please check that y
 ## Contributing
 1. Find an issue you'd like to work on [here](https://github.com/ShackledMars261/mio-archipelago/issues). If there isn't an issue for what you'd like to work on, please create one.
 2. Add yourself as the assignee of the issue.
-3. On the right side, there should be a section called "Development". Click the "Create a branch" link to connect the branch to the issue.
+3. Switch to the branch linked to the issue. It should be created automatically when you assign yourself.
 4. Work off of the branch, and when your changes are ready, create a PR to merge it into main.
 5. Your PR will need to be reviewed before being merged into main. If there are any unresolved comments on your PR, please work with the reviewer to fix what they pointed out. ONLY THE REVIEWER/USER WHO LEFT THE COMMENT ORIGINALLY SHOULD RESOLVE IT! NOT YOU! Once all comments are resolved, they will re-review.
-6. Once your PR has been reviewed and approved, you can merge it into main! Make sure to hit the "Delete Branch" button after it is merged.
-7. Close the issue.
-8. Congrats! You've fixed a bug with the mod.
+6. Once your PR has been reviewed and approved, you can merge it into main!
+7. Congrats! You've fixed a bug with the mod.
