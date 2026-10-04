@@ -1,7 +1,7 @@
 ---
-name: Bug report
-about: Create a report to help us improve
-title: ''
+name: AP Bug Report
+about: Create a report to let us know about a bug in the mod.
+title: "[BUG]"
 labels: bug
 assignees: ShackledMars261
 type: Bug
@@ -20,9 +20,6 @@ Steps to reproduce the behavior:
 
 **Expected behavior**
 A clear and concise description of what you expected to happen.
-
-**Screenshots**
-If applicable, add screenshots to help explain your problem.
 
 **Additional context**
 Add any other context about the problem here.
