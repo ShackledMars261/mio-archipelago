@@ -135,6 +135,7 @@ namespace MioAP
         private static readonly string[] ScopeSpider = { "UNLOCK:SPIDER" };
         private static readonly string[] ScopeGlide = { "UNLOCK:GLIDE" };
         private static readonly string[] ScopeOrbShoot = { "UNLOCK:ORB_SHOOT" };
+        private static readonly string[] ScopeMap = { "UNLOCK:MAP" };
 
         /// <summary>Npc_node::update_hacker is one handler shared by several unlocks.</summary>
         private static readonly string[] ScopeHacker =
@@ -238,6 +239,16 @@ namespace MioAP
 
             On.MioGame.On_Npc_node.update_hacker.Hook +=
                 static (orig, self, node) => { using var s = new Scope(ScopeHacker, "Npc_node_hacker"); orig(self, node); };
+
+            On.MioGame.On_Hub_general.update_tuner3.Hook +=
+                static (orig, self, node) => { using var s = new Scope(ScopeMap, "Hub_general_tuner3"); orig(self, node); };
+
+            // "Give this if the player hasn't got it" - the guard re-runs every
+            // frame, so an unscoped one spins forever on an AP item: we consume
+            // the loot and never write the real entry. Scoped, the guard reads
+            // the shadow instead and flips the frame after the check is sent.
+            On.MioGame.On_Game.loot_up_to_one.Hook +=
+                static (orig, self, loot_id, flags) => { using var s = new Scope(ScopeAllApItems, "loot_up_to_one"); return orig(self, loot_id, flags); };
         }
 
         // ===============================================================
