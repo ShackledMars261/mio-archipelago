@@ -153,6 +153,9 @@ namespace MioAP
         /// </summary>
         [ThreadStatic] private static bool _suppressNextNacre;
 
+        /// <summary>The intro sequence room, where being in the glitch world is alright.</summary>
+        private const string GlitchZone = "GW_intro_jump_P1";
+
         public HooksManager(Action<string> loggingCBMethod, DataManager dataManager, ArchipelagoManager apManager, Action<string> showToastMethod)
         {
             _loggingCBMethod = loggingCBMethod;
@@ -184,6 +187,9 @@ namespace MioAP
 
             // Keeps an Archipelago run off the player's vanilla saves.
             On.MioGame.GlobalFunctions.core.On_fmt.stringfv.Hook += stringfv_Hook;
+
+            // Skip Samsk tubes in order to prevent potential soft locks.
+            On.MioGame.GlobalFunctions.game.On_game.glitch_state_update.Prefix += Glitch_state_update_Prefix;
 
             InitScopeHooks();
 
@@ -679,6 +685,27 @@ namespace MioAP
 
         private static unsafe bool StartsWithSlot(sbyte* p) =>
             p[0] == 's' && p[1] == 'l' && p[2] == 'o' && p[3] == 't' && p[4] == '_';
+
+        /// <summary>
+        /// Ejects the player from the glitch world anywhere outside the intro
+        /// room. Reaching it elsewhere without the progression that normally
+        /// precedes it leaves no way back out.
+        /// </summary>
+        private unsafe void Glitch_state_update_Prefix()
+        {
+            try
+            {
+                ref Game game = ref MioGame.Globals.game;
+
+                // Cheap test first: this runs every frame and the zone id needs
+                // marshalling out of a MioGame.String.
+                if (!game.glitch.is_inside()) return;
+                if (Util.MioStringToString(game.current_zone_id) == GlitchZone) return;
+
+                game.exit_glitch();
+            }
+            catch (Exception ex) { LogMessage("[hooks] glitch exit failed: " + ex); }
+        }
 
         // ===============================================================
         // Diagnostics
