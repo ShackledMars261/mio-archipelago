@@ -1,0 +1,52 @@
+#!/bin/sh
+#
+# Prefixes the commit message with the issue number taken from the branch name,
+# so commits link back to the issue they belong to.
+#
+#     branch 42-save-gate-bounce  ->  [#42] Fix the bounce on a failed connect
+#
+# Enable it once per clone (git does not install hooks for you):
+#
+#     git config core.hooksPath .githooks
+#
+# Branch names it recognises - the number must start the last path segment,
+# which is the shape GitHub's "create a branch for this issue" produces:
+#
+#     42-save-gate-bounce        feature/42-save-gate-bounce
+#     42                         issue-42-save-gate-bounce
+#
+# A branch with no leading number is left alone rather than guessed at, so
+# "fix-utf8-parsing" doesn't become "[#8] ...".
+
+msg_file="$1"
+source="$2"
+
+# merge/squash/commit messages already exist - amends and rebase rewords come
+# through as "commit", and rewriting those would fight the user.
+case "$source" in
+	merge|squash|commit) exit 0 ;;
+esac
+
+# Detached HEAD (bisect, rebase) has no branch to read.
+branch=$(git symbolic-ref --short HEAD 2>/dev/null) || exit 0
+
+case "$branch" in
+	main|master|develop) exit 0 ;;
+esac
+
+segment=${branch##*/}
+issue=$(printf '%s' "$segment" | sed -nE 's/^(issue[-_]?)?([0-9]+)([^0-9].*)?$/\2/p')
+
+[ -n "$issue" ] || exit 0
+
+# Already mentioned anywhere in the message - including "Fixes #42" written by
+# hand - so leave it be.
+if grep -qE "(^|[^0-9])#$issue([^0-9]|$)" "$msg_file"; then
+	exit 0
+fi
+
+# Prefix the first line in place. Deliberately "[#42] " and not "#42 ": git
+# strips lines beginning with # as comments whenever the message passes through
+# an editor, which would silently empty the message and abort the commit.
+tmp="$msg_file.issueprefix"
+{ printf '[#%s] ' "$issue"; cat "$msg_file"; } > "$tmp" && mv "$tmp" "$msg_file"

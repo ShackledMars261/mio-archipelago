@@ -60,57 +60,11 @@ jobs:
           -p:Version=${{ steps.ver.outputs.version }}
           -p:ContinuousIntegrationBuild=true
 
-      # post-build.bat swallows a lot, so confirm the staged folder is real
-      # rather than shipping an empty zip.
+      # Same check CI runs on every PR, so a tag can't ship something a PR
+      # wouldn't have been allowed to merge.
       - name: Verify the staged mod folder
         shell: pwsh
-        run: |
-          if (-not (Test-Path '${{ env.STAGE_DIR }}')) {
-              throw 'Nothing staged at ${{ env.STAGE_DIR }} - did post-build.bat run?'
-          }
-
-          Get-ChildItem -Recurse -File '${{ env.STAGE_DIR }}' |
-              Select-Object @{n='File';e={ $_.FullName.Replace((Get-Location).Path + '\', '') }}, Length |
-              Format-Table -AutoSize
-
-          # Everything the loader expects to find in the mod folder. The .json
-          # files come from Mod\, the DLLs from the build output.
-          $required = @(
-              'Archipelago.MultiClient.Net.dll'
-              'client.json'
-              'MioAP.dll'
-              'mod.json'
-              'nacre_carcass.json'
-              'Newtonsoft.Json.dll'
-          )
-
-          # PolyHook belongs to the loader, which loads its own copies before we
-          # are initialized. Shipping a second set risks a managed binding that
-          # doesn't match the native it ends up bound to, so treat any of these
-          # turning up as a packaging regression rather than harmless weight.
-          $forbidden = @(
-              'asmjit.dll'
-              'asmtk.dll'
-              'cpolyhook2.dll'
-              'PolyHook_2.dll'
-              'PolyHook2.NET.dll'
-              'Zydis.dll'
-          )
-
-          # Report every problem at once - one per run is a slow way to find out
-          # three things are wrong.
-          $missing = $required | Where-Object {
-              -not (Test-Path (Join-Path '${{ env.STAGE_DIR }}' $_))
-          }
-          $bundled = $forbidden | Where-Object {
-              Test-Path (Join-Path '${{ env.STAGE_DIR }}' $_)
-          }
-
-          $problems = @()
-          if ($missing) { $problems += "missing: $($missing -join ', ')" }
-          if ($bundled) { $problems += "should not be bundled: $($bundled -join ', ')" }
-
-          if ($problems) { throw ($problems -join ' / ') }
+        run: .github/scripts/verify-stage.ps1 -StageDir '${{ env.STAGE_DIR }}'
 
       - name: Zip
         shell: pwsh
