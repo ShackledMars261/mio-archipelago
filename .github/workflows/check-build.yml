@@ -1,0 +1,63 @@
+# Build check for pull requests into main.
+#
+# Deliberately the same runner, configuration and staging check as release.yml,
+# so a PR that passes here is one that can be tagged and released. The job name
+# below ("Build") is what branch protection matches on - renaming it silently
+# detaches the required check, so change it only on purpose.
+
+name: Check Build
+
+on:
+  pull_request:
+    branches: [main]
+  # Also on main itself: two PRs that are each green can still break main once
+  # merged together, and nothing else would catch that before a tag.
+  push:
+    branches: [main]
+
+# Nothing here publishes; read is all it needs.
+permissions:
+  contents: read
+
+# A newer push to the same branch makes the in-flight run irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PROJECT: MioAP.csproj
+  MOD_NAME: MioAP
+  STAGE_DIR: bin/MioAP
+
+jobs:
+  build:
+    name: Build
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore ${{ env.PROJECT }}
+
+      - name: Build
+        run: >
+          dotnet build ${{ env.PROJECT }}
+          --configuration Release
+          --no-restore
+          -p:ContinuousIntegrationBuild=true
+
+      - name: Verify the staged mod folder
+        shell: pwsh
+        run: .github/scripts/verify-stage.ps1 -StageDir '${{ env.STAGE_DIR }}'
+
+      # So a reviewer can download the PR's build and try it in game.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.MOD_NAME }}-${{ github.sha }}
+          path: ${{ env.STAGE_DIR }}
+          retention-days: 7
