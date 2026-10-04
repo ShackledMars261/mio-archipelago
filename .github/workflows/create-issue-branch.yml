@@ -9,6 +9,8 @@ jobs:
         steps:
             - name: Create Issue Branch
               uses: robvanderleek/create-issue-branch@main
+              env:
+                GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               with:
                 branchName: short
                 autoLinkIssue: true
