@@ -18,7 +18,11 @@ We use the GitHub issue tracker to manage bugs and features. Please check that y
 
 ## Contributing
 ### First Time Setup
-1. 
+1. Clone the repository via Git
+2. Run this command to setup the commit hooks:
+```
+git config core.hooksPath .githooks
+```
 
 ### Working on the Mod
 1. Find an issue you'd like to work on [here](https://github.com/ShackledMars261/mio-archipelago/issues). If there isn't an issue for what you'd like to work on, please create one.
