@@ -17,6 +17,10 @@ The multiworld randomizer client for the game MIO: Memories in Orbit.
 We use the GitHub issue tracker to manage bugs and features. Please check that your bug/feature doesn't already have an issue before creating one. You can view and create issues [here](https://github.com/ShackledMars261/mio-archipelago/issues). 
 
 ## Contributing
+### First Time Setup
+1. 
+
+### Working on the Mod
 1. Find an issue you'd like to work on [here](https://github.com/ShackledMars261/mio-archipelago/issues). If there isn't an issue for what you'd like to work on, please create one.
 2. Add yourself as the assignee of the issue.
 3. Switch to the branch linked to the issue. It should be created automatically when you assign yourself.
