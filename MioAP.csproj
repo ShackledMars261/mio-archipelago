@@ -14,7 +14,16 @@
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
 		<PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-		<PackageReference Include="PolyHook2.NET" Version="1.1.3" />
+
+		<!-- Compile against it, ship none of it: the loader has its own copy of
+		     PolyHook2.NET.dll and the natives behind it (PolyHook_2, cpolyhook2,
+		     asmjit, asmtk, Zydis) and loads them before we're initialized. A
+		     second set in the mod folder is at best ignored - Windows hands back
+		     the already-loaded module for a given name - and at worst a version
+		     mismatch against the managed binding the loader actually used.
+		     Excluding "runtime" drops PolyHook2.NET.dll, "native" drops the
+		     runtimes\win-x64\native\ payload. -->
+		<PackageReference Include="PolyHook2.NET" Version="1.1.3" ExcludeAssets="runtime;native" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -32,6 +41,9 @@
 		</Reference>
 	</ItemGroup>
 
+	<!-- A no-op now that PolyHook's natives are excluded, but kept as a safety
+	     net: if a future package does ship natives, post-build.bat's flat *.dll
+	     glob would miss them in runtimes\. -->
 	<Target Name="FlattenNativeAssets" BeforeTargets="PostBuild">
 		<ItemGroup>
 			<NativeAsset Include="$(TargetDir)runtimes\win-x64\native\*.dll" />
@@ -62,7 +74,10 @@
 			<StageDir>$(ProjectDir)bin\$(ProjectName)</StageDir>
 		</PropertyGroup>
 
-		<Exec Command="robocopy &quot;$(StageDir)&quot; &quot;$(GameModsDir)&quot; /MIR /NFL /NDL /NJH /NJS /NP"
+		<!-- /XF keeps saved_connections.json out of the mirror entirely: it is
+		     written by the mod at runtime, so it must survive both the overwrite
+		     and the /MIR delete pass that would otherwise purge it as an extra. -->
+		<Exec Command="robocopy &quot;$(StageDir)&quot; &quot;$(GameModsDir)&quot; /MIR /XF saved_connections.json /NFL /NDL /NJH /NJS /NP"
 			  IgnoreExitCode="true"
 			  ContinueOnError="true">
 			<Output TaskParameter="ExitCode" PropertyName="RobocopyExit" />

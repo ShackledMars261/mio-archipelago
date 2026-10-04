@@ -2,9 +2,7 @@
 #
 #     git tag v0.0.1 && git push origin v0.0.1
 #
-# Windows runner, deliberately: the build stages through post-build.bat, and the
-# mod ships win-x64 native DLLs (PolyHook's) that FlattenNativeAssets pulls out
-# of the runtimes/ folder.
+# Windows runner, deliberately: the build stages through post-build.bat.
 #
 # Builds on a runner set CI=true, which the csproj uses to skip DeployToGame -
 # there is no Steam install to mirror into.
@@ -75,32 +73,44 @@ jobs:
               Select-Object @{n='File';e={ $_.FullName.Replace((Get-Location).Path + '\', '') }}, Length |
               Format-Table -AutoSize
 
-          # Everything the loader expects to find in the mod folder. The natives
-          # come from PolyHook via FlattenNativeAssets; the .json files from Mod\.
+          # Everything the loader expects to find in the mod folder. The .json
+          # files come from Mod\, the DLLs from the build output.
           $required = @(
               'Archipelago.MultiClient.Net.dll'
-              'asmjit.dll'
-              'asmtk.dll'
               'client.json'
-              'cpolyhook2.dll'
               'MioAP.dll'
               'mod.json'
               'nacre_carcass.json'
               'Newtonsoft.Json.dll'
+          )
+
+          # PolyHook belongs to the loader, which loads its own copies before we
+          # are initialized. Shipping a second set risks a managed binding that
+          # doesn't match the native it ends up bound to, so treat any of these
+          # turning up as a packaging regression rather than harmless weight.
+          $forbidden = @(
+              'asmjit.dll'
+              'asmtk.dll'
+              'cpolyhook2.dll'
               'PolyHook_2.dll'
               'PolyHook2.NET.dll'
               'Zydis.dll'
           )
 
-          # Report every absence at once - one-at-a-time is a slow way to find
-          # out three things are missing.
+          # Report every problem at once - one per run is a slow way to find out
+          # three things are wrong.
           $missing = $required | Where-Object {
               -not (Test-Path (Join-Path '${{ env.STAGE_DIR }}' $_))
           }
-
-          if ($missing) {
-              throw "Missing from the staged folder: $($missing -join ', ')"
+          $bundled = $forbidden | Where-Object {
+              Test-Path (Join-Path '${{ env.STAGE_DIR }}' $_)
           }
+
+          $problems = @()
+          if ($missing) { $problems += "missing: $($missing -join ', ')" }
+          if ($bundled) { $problems += "should not be bundled: $($bundled -join ', ')" }
+
+          if ($problems) { throw ($problems -join ' / ') }
 
       - name: Zip
         shell: pwsh
