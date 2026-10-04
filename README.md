@@ -2,9 +2,10 @@
 The multiworld randomizer client for the game MIO: Memories in Orbit.
 
 ## Setup
-1. Install the [mod loader](https://github.com/MIO-Modding/mod-loader)
-2. Run the game, and then close it
-3. Download the most recent zip from releases and put it's contents in your mods folder. The path should look something like "MIO/mods/MioAP/MioAP.dll"
+1. MAKE SURE DOTNET 8 IS INSTALLED!!!
+2. Install the [mod loader](https://github.com/MIO-Modding/mod-loader)
+3. Run the game, and then close it
+4. Download the most recent zip from releases and put it's contents in your mods folder. The path should look something like "MIO/mods/MioAP/MioAP.dll"
 
 ## Running
 1. Run the game
@@ -12,5 +13,15 @@ The multiworld randomizer client for the game MIO: Memories in Orbit.
 3. Enter your connection info and press connect
 4. Make a new save
 
+## Found a bug or want to request a feature?
+We use the GitHub issue tracker to manage bugs and features. Please check that your bug/feature doesn't already have an issue before creating one. You can view and create issues [here](https://github.com/ShackledMars261/mio-archipelago/issues). 
+
 ## Contributing
-Make a PR, it aint that deep
+1. Find an issue you'd like to work on [here](https://github.com/ShackledMars261/mio-archipelago/issues). If there isn't an issue for what you'd like to work on, please create one.
+2. Add yourself as the assignee of the issue.
+3. On the right side, there should be a section called "Development". Click the "Create a branch" link to connect the branch to the issue.
+4. Work off of the branch, and when your changes are ready, create a PR to merge it into main.
+5. Your PR will need to be reviewed before being merged into main. If there are any unresolved comments on your PR, please work with the reviewer to fix what they pointed out. ONLY THE REVIEWER/USER WHO LEFT THE COMMENT ORIGINALLY SHOULD RESOLVE IT! NOT YOU! Once all comments are resolved, they will re-review.
+6. Once your PR has been reviewed and approved, you can merge it into main! Make sure to hit the "Delete Branch" button after it is merged.
+7. Close the issue.
+8. Congrats! You've fixed a bug with the mod.

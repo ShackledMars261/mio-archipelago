@@ -2,7 +2,7 @@
 name: AP Bug Report
 about: Create a report to let us know about a bug in the mod.
 title: "[BUG]"
-labels: bug, enhancement
+labels: bug
 assignees: ''
 type: Bug
 
