@@ -5,6 +5,8 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 
+using ItemSendMessage = Archipelago.MultiClient.Net.MessageLog.Messages.ItemSendLogMessage;
+
 namespace MioAP
 {
     /// <summary>Where the Archipelago session currently stands.</summary>
@@ -231,6 +233,17 @@ namespace MioAP
         private void OnMessageReceived(Archipelago.MultiClient.Net.MessageLog.Messages.LogMessage message)
         {
             LogMessage($"[AP] {message}");
+
+            // "Sent" is the server's own event rather than something we infer
+            // from our checks, so it is right whichever way the location was
+            // found. Items for ourselves are skipped - GrantItem already
+            // toasts those as "Found X" when they come back to us.
+            if (message is ItemSendMessage send
+                && send.IsSenderTheActivePlayer
+                && !send.IsReceiverTheActivePlayer)
+            {
+                Toast($"Sent {send.Item.ItemDisplayName} to {send.Receiver.Alias}");
+            }
         }
 
         private void ResyncFromServer()
