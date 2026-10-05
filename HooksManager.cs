@@ -27,6 +27,11 @@ namespace MioAP
     /// The C++ client did the same thing by matching return addresses, which
     /// isn't available to us - a managed hook's return address points into the
     /// trampoline, not game code.
+    ///
+    /// MEL'S SHOP is the one feature that reaches past the save layer into the
+    /// UI, so that an offer shows what Archipelago will actually send. The list
+    /// rows and the detail panel get there by different routes; see the shop
+    /// section near the bottom for why.
     /// </summary>
     internal class HooksManager
     {
@@ -155,6 +160,17 @@ namespace MioAP
         };
 
         /// <summary>
+        /// Mel's offers, by the save entry of their vanilla reward. Narrow
+        /// rather than ScopeAllApItems because an offer's condition tests two
+        /// different things: whether the offer was bought (its own id, which
+        /// must read the shadow) and whether the player owns a prerequisite
+        /// (which must read the real entry). Scoping only the offers' own
+        /// entries keeps both correct, and stays correct if the scraplings
+        /// ever enter the item pool.
+        /// </summary>
+        private readonly string[] _scopeShopOffers;
+
+        /// <summary>
         /// A carcass pickup grants its currency in a second loot call - Nacre
         /// bumps SOLID_DROPLETS, an Old Core bumps FULL_PEARLS. When the first
         /// call is intercepted, this holds the entry that follow-up will use so
@@ -169,12 +185,69 @@ namespace MioAP
         /// <summary>The intro sequence room, where being in the glitch world is alright.</summary>
         private const string GlitchZone = "GW_intro_jump_P1";
 
+        // ---------------------------------------------------------------
+        // Mel's shop
+        // ---------------------------------------------------------------
+
+        /// <summary>The room containing Mel's shop.</summary>
+        private const string ShopRoom = "HUB_hub_shop";
+
+        /// <summary>Loca keys the detail panel looks up for the selected offer.</summary>
+        private const string ItemNamePrefix = "ITEM_NAME_";
+        private const string ItemDescriptionPrefix = "ITEM_DESCRIPTION_";
+        private const string ItemFlavourPrefix = "ITEM_FLAVOUR_";
+
+        /// <summary>True inside either of Mel's shop passes, update or draw.</summary>
+        private static bool InShopScope =>
+            _scopeName == "workshop_ui" || _scopeName == "workshop_render";
+
+        /// <summary>
+        /// Shop locations already hinted, so a grid rebuild doesn't re-send.
+        /// Pairs with ArchipelagoManager.ClearScouts: both describe one
+        /// multiworld and must be cleared together.
+        /// </summary>
+        private readonly HashSet<int> _hintedShopLocations = new();
+
+        /// <summary>Mel's offers as location ids, for the connect-time scout.</summary>
+        private readonly long[] _shopLocationIds;
+        private bool _shopPrescouted;
+
+        /// <summary>
+        /// Label nodes collected during a grid rebuild, in grid order. The game
+        /// sets each row's text while building, before item_grid is readable,
+        /// so we note the nodes then and rewrite them in the suffix.
+        /// </summary>
+        private readonly List<IntPtr> _rowTextNodes = new();
+        private bool _inGridBuild;
+
+        /// <summary>
+        /// Persistent MioGame.String instances handed back from try_translate,
+        /// keyed by the loca key they answer. The engine treats that return as
+        /// a pointer into the loca table - memory it never frees and expects to
+        /// stay valid - so these are allocated once and kept for the session.
+        /// </summary>
+        private readonly Dictionary<string, IntPtr> _locaOverrides = new(StringComparer.Ordinal);
+
         public HooksManager(Action<string> loggingCBMethod, DataManager dataManager, ArchipelagoManager apManager, Action<string> showToastMethod)
         {
             _loggingCBMethod = loggingCBMethod;
             this.dataManager = dataManager;
             this.apManager = apManager;
             _showToast = showToastMethod;
+
+            _scopeShopOffers = dataManager.GetVanillaEntriesInRoom(ShopRoom);
+            if (_scopeShopOffers.Length == 0)
+                LogMessage($"[hooks] WARNING: no shop offers found in {ShopRoom} - shop scope is inert");
+            else
+                LogMessage($"[hooks] shop scope: {_scopeShopOffers.Length} offers in {ShopRoom}");
+
+            var ids = new List<long>(_scopeShopOffers.Length);
+            foreach (string entry in _scopeShopOffers)
+            {
+                Location? loc = dataManager.ResolveLocation(entry, ShopRoom);
+                if (loc != null) ids.Add(loc.Id);
+            }
+            _shopLocationIds = ids.ToArray();
         }
 
         private void LogMessage(string message) => _loggingCBMethod?.Invoke(message);
@@ -204,9 +277,39 @@ namespace MioAP
             // Skip Samsk tubes in order to prevent potential soft locks.
             On.MioGame.GlobalFunctions.game.On_game.glitch_state_update.Prefix += Glitch_state_update_Prefix;
 
+            InitShopHooks();
             InitScopeHooks();
 
             LogMessage("[hooks] installed");
+        }
+
+        /// <summary>
+        /// Mel's shop. Three jobs: hint the visible offers, relabel the list
+        /// rows, and relabel the detail panel. They need three different hooks
+        /// because the UI produces those two pieces of text by different
+        /// routes - see the shop section for the detail.
+        /// </summary>
+        private unsafe void InitShopHooks()
+        {
+            // Collect the row label nodes while the game builds the grid. It
+            // sets each row's text before item_grid is readable, so the rewrite
+            // has to wait for the suffix.
+            On.MioGame.On_Workshop_ui.update_item_grid.Hook +=
+                (orig, self, n) =>
+                {
+                    _rowTextNodes.Clear();
+                    _inGridBuild = true;
+                    try { orig(self, n); }
+                    finally { _inGridBuild = false; }
+                };
+
+            On.MioGame.GlobalFunctions.game.On_ui.set_text_1.Hook += Shop_set_text_Hook;
+
+            // Hints the visible offers and rewrites their labels.
+            On.MioGame.On_Workshop_ui.update_item_grid.Suffix += Update_item_grid_Suffix;
+
+            // Relabels the detail panel for whichever offer is highlighted.
+            On.MioGame.On_Loca.try_translate.Hook += Shop_try_translate_Hook;
         }
 
         /// <summary>
@@ -263,6 +366,23 @@ namespace MioAP
             // the shadow instead and flips the frame after the check is sent.
             On.MioGame.On_Game.loot_up_to_one.Hook +=
                 static (orig, self, loot_id, flags) => { using var s = new Scope(ScopeAllApItems, "loot_up_to_one"); return orig(self, loot_id, flags); };
+
+            // Mel's shop. Both the purchase and the grid rebuild run under
+            // Workshop_ui.pre_sim_update, reached from Game::fixed_update -
+            // Game.update_shops never sees either.
+            On.MioGame.On_Workshop_ui.pre_sim_update_all.Hook +=
+                (orig, w) => { using var s = new Scope(_scopeShopOffers, "workshop_ui"); orig(w); };
+
+            // Mel's dialog asks whether her stock is empty, which is the same
+            // question about the same entries.
+            On.MioGame.On_Npc_node.update_mel.Hook +=
+                (orig, self, node) => { using var s = new Scope(_scopeShopOffers, "update_mel"); orig(self, node); };
+
+            // The draw pass. Scoped for the same reason as the update pass, and
+            // so the detail panel's loca lookups are recognised as the shop's
+            // wherever they happen to originate.
+            On.MioGame.On_Workshop_ui.render_all.Hook +=
+                (orig, vp, w) => { using var s = new Scope(_scopeShopOffers, "workshop_render"); orig(vp, w); };
         }
 
         // ===============================================================
@@ -361,6 +481,28 @@ namespace MioAP
                 apManager.DrainPending(GrantItem, MarkLocationChecked);
             }
             catch (Exception ex) { LogMessage("[hooks] drain failed: " + ex); }
+
+            try
+            {
+                if (!apManager.IsConnected)
+                {
+                    if (_shopPrescouted)
+                    {
+                        // The session ended. Everything we know about Mel's
+                        // offers described that multiworld, so forget it -
+                        // a reconnect elsewhere must not show its items.
+                        _shopPrescouted = false;
+                        _hintedShopLocations.Clear();
+                        _locaOverrides.Clear();
+                        apManager.ClearScouts();
+                    }
+                }
+                else if (!_shopPrescouted && _shopLocationIds.Length > 0)
+                {
+                    _shopPrescouted = apManager.ScoutLocations(_shopLocationIds, asHint: false);
+                }
+            }
+            catch (Exception ex) { LogMessage("[hooks] shop pre-scout failed: " + ex); }
         }
 
         /// <summary>
@@ -572,8 +714,8 @@ namespace MioAP
         }
 
         private unsafe Save_entry* loot_1_Hook(
-    On.MioGame.On_Game.orig_loot_1 orig,
-    Game* __this, MioGame.String* item_id, int count, Loot_flags flags)
+            On.MioGame.On_Game.orig_loot_1 orig,
+            Game* __this, MioGame.String* item_id, int count, Loot_flags flags)
         {
             try
             {
@@ -734,6 +876,176 @@ namespace MioAP
                 game.exit_glitch();
             }
             catch (Exception ex) { LogMessage("[hooks] glitch exit failed: " + ex); }
+        }
+
+        // ===============================================================
+        // Mel's shop
+        //
+        // Two pieces of text, reached two different ways.
+        //
+        // THE LIST ROWS carry nothing that identifies them. The label passes
+        // through Loca as already-resolved text, several offers share one label
+        // ("Coating Component" twice over), and the order the UI resolves them
+        // in bears no relation to the order it draws them. What does work is
+        // ui::set_text: the game sets each row's text once while building the
+        // grid, in grid order, so noting those nodes during the build and
+        // rewriting them afterwards gives exact identity by index.
+        //
+        // THE DETAIL PANEL is easy by comparison - it looks up
+        // ITEM_NAME_<save entry>, which names the offer outright, so that one
+        // is answered directly and is correct whichever row is highlighted.
+        // ===============================================================
+
+        /// <summary>
+        /// Notes the label node of each row while the grid is being built.
+        ///
+        /// Each row sets three strings: name, cost, quantity. The costs and
+        /// counts are numeric, and the one raw ITEM_NAME_ key belongs to the
+        /// category header rather than a row, so skipping both leaves exactly
+        /// the row labels, in grid order.
+        /// </summary>
+        private unsafe void Shop_set_text_Hook(
+            On.MioGame.GlobalFunctions.game.On_ui.orig_set_text_1 orig,
+            Node2* node, MioGame.String txt)
+        {
+            if (_inGridBuild)
+            {
+                try
+                {
+                    string s = Util.MioStringToString(txt);
+
+                    if (!IsNumeric(s) && !s.StartsWith(ItemNamePrefix, StringComparison.Ordinal))
+                        _rowTextNodes.Add((IntPtr)node);
+                }
+                catch (Exception ex) { LogMessage("[hooks] shop row capture failed: " + ex); }
+            }
+
+            orig(node, txt);
+        }
+
+        /// <summary>
+        /// Hints whatever Mel is currently offering and relabels the rows.
+        /// Reading the grid the game just built is how we learn which offers
+        /// are visible without reimplementing the scrapling tier conditions.
+        /// </summary>
+        private unsafe void Update_item_grid_Suffix(Workshop_ui* __this, Node2* n)
+        {
+            try
+            {
+                List<long>? fresh = null;
+                ref var grid = ref __this->item_grid;
+                Workshop_ui_item* items = (Workshop_ui_item*)grid.data.data;
+                if (items == null) return;
+
+                var tiles = new int[grid.count];
+
+                for (uint i = 0; i < grid.count; i++)
+                {
+                    tiles[i] = -1;
+
+                    var item = items[i].item;
+                    if (item == null) continue;
+
+                    string id = Util.MioStringToString(item->id.@ref);
+
+                    Location? loc = dataManager.ResolveLocation(id, ShopRoom);
+                    if (loc == null) continue;
+
+                    tiles[i] = loc.Id;
+
+                    if (!apManager.IsConnected) continue;
+                    if (!_hintedShopLocations.Add(loc.Id)) continue;
+                    (fresh ??= new List<long>()).Add(loc.Id);
+                }
+
+                // Mismatched counts mean the row filter let something through
+                // or dropped a label, which would shift every row by one.
+                if (Diagnostics)
+                    LogMessage($"[shop] {grid.count} grid entries, {_rowTextNodes.Count} label nodes");
+
+                int rows = Math.Min(tiles.Length, _rowTextNodes.Count);
+                for (int i = 0; i < rows; i++)
+                {
+                    if (tiles[i] < 0) continue;
+
+                    // Null means the scout hasn't come back; the vanilla label
+                    // stands until the next rebuild.
+                    string? apName = apManager.ScoutedName(tiles[i]);
+                    if (apName == null) continue;
+
+                    MioGame.String s = Util.StringToMioString(apName);
+                    MioGame.GlobalFunctions.game.ui.set_text((Node2*)_rowTextNodes[i], s);
+                }
+
+                if (fresh == null) return;
+
+                // Un-record on failure so a reconnect retries them.
+                if (!apManager.ScoutLocations(fresh, asHint: true))
+                    foreach (long id in fresh) _hintedShopLocations.Remove((int)id);
+            }
+            catch (Exception ex) { LogMessage("[hooks] shop grid failed: " + ex); }
+        }
+
+        /// <summary>
+        /// Answers the detail panel's ITEM_NAME_/ITEM_DESCRIPTION_/ITEM_FLAVOUR_
+        /// lookups for Mel's offers. Flavour is blanked, since the vanilla quip
+        /// describes an item the player isn't getting.
+        /// </summary>
+        private unsafe MioGame.String* Shop_try_translate_Hook(
+            On.MioGame.On_Loca.orig_try_translate orig, Loca* self, MioGame.String* id)
+        {
+            if (!InShopScope) return orig(self, id);
+
+            try
+            {
+                string key = Util.MioStringToString(*id);
+
+                string? prefix =
+                    key.StartsWith(ItemNamePrefix, StringComparison.Ordinal) ? ItemNamePrefix :
+                    key.StartsWith(ItemDescriptionPrefix, StringComparison.Ordinal) ? ItemDescriptionPrefix :
+                    key.StartsWith(ItemFlavourPrefix, StringComparison.Ordinal) ? ItemFlavourPrefix :
+                    null;
+
+                if (prefix != null)
+                {
+                    Location? loc = dataManager.ResolveLocation(key[prefix.Length..], ShopRoom);
+
+                    // Only override once the scout is back - vanilla text beats
+                    // a blank panel.
+                    if (loc != null && apManager.ScoutedName(loc.Id) != null)
+                    {
+                        string text =
+                            ReferenceEquals(prefix, ItemNamePrefix) ? apManager.ScoutedName(loc.Id)! :
+                            ReferenceEquals(prefix, ItemDescriptionPrefix) ? apManager.ScoutedDescription(loc.Id) ?? "" :
+                            "";
+
+                        return CachedLocaString(key, text);
+                    }
+                }
+            }
+            catch (Exception ex) { LogMessage("[hooks] panel label failed: " + ex); }
+
+            return orig(self, id);
+        }
+
+        /// <summary>Engine string for an overridden loca key, allocated once.</summary>
+        private unsafe MioGame.String* CachedLocaString(string locaKey, string text)
+        {
+            if (_locaOverrides.TryGetValue(locaKey, out IntPtr existing))
+                return (MioGame.String*)existing;
+
+            IntPtr block = Marshal.AllocHGlobal(sizeof(MioGame.String));
+            *(MioGame.String*)block = Util.StringToMioString(text);
+            _locaOverrides[locaKey] = block;
+
+            return (MioGame.String*)block;
+        }
+
+        private static bool IsNumeric(string s)
+        {
+            if (s.Length == 0) return false;
+            foreach (char c in s) if (!char.IsDigit(c)) return false;
+            return true;
         }
 
         // ===============================================================

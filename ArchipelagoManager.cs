@@ -16,6 +16,9 @@ namespace MioAP
         Failed,
     }
 
+    /// <summary>What a scouted location holds, as the shop presents it.</summary>
+    internal readonly record struct ScoutedOffer(string Name, string Description);
+
     /// <summary>
     /// Owns the Archipelago session and the boundary between its threads and the
     /// game's.
@@ -49,6 +52,11 @@ namespace MioAP
     /// it reads the same whoever started it - the menu or the save gate. The GUI
     /// isn't constructed yet when this is, so the toast sink is handed over
     /// afterwards rather than taken in the constructor.
+    ///
+    /// SCOUTING. Mel's shop shows what each offer really sends, which means
+    /// knowing before the player buys. Scouts answer that: privately at connect
+    /// time so the labels are ready, and again as a public hint when the player
+    /// first sees an offer, so trackers pick it up.
     /// </summary>
     internal class ArchipelagoManager
     {
@@ -337,5 +345,106 @@ namespace MioAP
         }
 
         public void SendLocationCheck(Location location) => SendLocationCheck(location.Id);
+
+        // ---- scouting ----
+
+        /// <summary>
+        /// What each scouted location holds. Written on the scout's completion
+        /// thread, read on the game thread while drawing the shop.
+        /// </summary>
+        private readonly ConcurrentDictionary<long, ScoutedOffer> _scouted = new();
+
+        /// <summary>
+        /// Asks the server what these locations hold. Fire-and-forget: the task
+        /// is never awaited, so the game thread never waits on the network.
+        ///
+        /// asHint creates a public hint the trackers can see. Without it the
+        /// scout is private, which is how the shop knows what an offer sends
+        /// before the player has laid eyes on it. CreateAndAnnounceOnce makes
+        /// the public form idempotent, so re-hinting an offer the player has
+        /// already seen doesn't spam anyone's chat.
+        ///
+        /// Returns false when nothing was sent, so the caller can retry later.
+        /// </summary>
+        public bool ScoutLocations(IReadOnlyList<long> locationIds, bool asHint)
+        {
+            if (locationIds.Count == 0) return true;
+
+            if (!IsConnected || _session == null)
+            {
+                LogMessage($"[AP] not connected; dropping {locationIds.Count} scout(s)");
+                return false;
+            }
+
+            var ids = new long[locationIds.Count];
+            for (int i = 0; i < ids.Length; i++) ids[i] = locationIds[i];
+
+            string what = asHint ? "hinted" : "scouted";
+
+            try
+            {
+                var policy = asHint ? HintCreationPolicy.CreateAndAnnounceOnce : HintCreationPolicy.None;
+
+                _ = _session.Locations.ScoutLocationsAsync(policy, ids).ContinueWith(t =>
+                {
+                    if (t.IsFaulted)
+                    {
+                        LogMessage($"[AP] scout failed: {t.Exception?.GetBaseException().Message}");
+                        return;
+                    }
+
+                    foreach (var kv in t.Result)
+                    {
+                        var info = kv.Value;
+
+                        // Our own items read better without "(ourselves)" after them.
+                        string name = info.IsReceiverRelatedToActivePlayer
+                            ? info.ItemDisplayName
+                            : $"{info.ItemDisplayName} ({info.Player.Alias})";
+
+                        // The first line leads because the shop panel prefixes
+                        // it with "Effect: " for modifier offers.
+                        string description =
+                            $"{Classify(info.Flags)} item\n" +
+                            $"For: {info.Player.Alias}\n" +
+                            $"Game: {info.ItemGame}";
+
+                        _scouted[kv.Key] = new ScoutedOffer(name, description);
+                    }
+
+                    LogMessage($"[AP] {what} {ids.Length} location(s)");
+                });
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogMessage("[AP] scout failed: " + ex);
+                return false;
+            }
+        }
+
+        /// <summary>Item name for a scouted location, or null if not scouted yet.</summary>
+        public string? ScoutedName(long locationId) =>
+            _scouted.TryGetValue(locationId, out var s) ? s.Name : null;
+
+        /// <summary>Recipient, game and classification, or null if not scouted yet.</summary>
+        public string? ScoutedDescription(long locationId) =>
+            _scouted.TryGetValue(locationId, out var s) ? s.Description : null;
+
+        /// <summary>
+        /// Forgets every scout. A different multiworld gives different answers,
+        /// so this belongs with whatever else is reset when one ends.
+        /// </summary>
+        public void ClearScouts() => _scouted.Clear();
+
+        /// <summary>Archipelago's item flags as the single word a player expects.</summary>
+        private static string Classify(ItemFlags flags)
+        {
+            if ((flags & ItemFlags.Trap) != 0) return "Trap";
+            if ((flags & ItemFlags.Advancement) != 0) return "Progression";
+            if ((flags & ItemFlags.NeverExclude) != 0) return "Useful";
+            return "Filler";
+        }
     }
 }
