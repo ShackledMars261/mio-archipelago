@@ -155,6 +155,17 @@ namespace MioAP
         };
 
         /// <summary>
+        /// Mel's offers, by the save entry of their vanilla reward. Narrow
+        /// rather than ScopeAllApItems because an offer's condition tests two
+        /// different things: whether the offer was bought (its own id, which
+        /// must read the shadow) and whether the player owns a prerequisite
+        /// (which must read the real entry). Scoping only the offers' own
+        /// entries keeps both correct, and stays correct if the scraplings
+        /// ever enter the item pool.
+        /// </summary>
+        private readonly string[] _scopeShopOffers;
+
+        /// <summary>
         /// A carcass pickup grants its currency in a second loot call - Nacre
         /// bumps SOLID_DROPLETS, an Old Core bumps FULL_PEARLS. When the first
         /// call is intercepted, this holds the entry that follow-up will use so
@@ -169,12 +180,21 @@ namespace MioAP
         /// <summary>The intro sequence room, where being in the glitch world is alright.</summary>
         private const string GlitchZone = "GW_intro_jump_P1";
 
+        /// <summary>The room containing Mel's shop.</summary>
+        private const string ShopRoom = "HUB_hub_shop";
+
         public HooksManager(Action<string> loggingCBMethod, DataManager dataManager, ArchipelagoManager apManager, Action<string> showToastMethod)
         {
             _loggingCBMethod = loggingCBMethod;
             this.dataManager = dataManager;
             this.apManager = apManager;
             _showToast = showToastMethod;
+
+            _scopeShopOffers = dataManager.GetVanillaEntriesInRoom(ShopRoom);
+            if (_scopeShopOffers.Length == 0)
+                LogMessage($"[hooks] WARNING: no shop offers found in {ShopRoom} - shop scope is inert");
+            else
+                LogMessage($"[hooks] shop scope: {_scopeShopOffers.Length} offers in {ShopRoom}");
         }
 
         private void LogMessage(string message) => _loggingCBMethod?.Invoke(message);
@@ -188,6 +208,8 @@ namespace MioAP
 #pragma warning disable CS0162
             if (Diagnostics) BuildSymbolTable();
 #pragma warning restore CS0162
+
+
 
             // Per-frame pump for queued Archipelago work.
             On.MioGame.On_Game.fixed_update.Prefix += fixed_update_Prefix;
@@ -263,6 +285,17 @@ namespace MioAP
             // the shadow instead and flips the frame after the check is sent.
             On.MioGame.On_Game.loot_up_to_one.Hook +=
                 static (orig, self, loot_id, flags) => { using var s = new Scope(ScopeAllApItems, "loot_up_to_one"); return orig(self, loot_id, flags); };
+
+            // Mel's shop. Both the purchase and the grid rebuild run under
+            // Workshop_ui.pre_sim_update, reached from Game::fixed_update -
+            // Game.update_shops never sees either.
+            On.MioGame.On_Workshop_ui.pre_sim_update_all.Hook +=
+                (orig, w) => { using var s = new Scope(_scopeShopOffers, "workshop_ui"); orig(w); };
+
+            // Mel's dialog asks whether her stock is empty, which is the same
+            // question about the same entries.
+            On.MioGame.On_Npc_node.update_mel.Hook +=
+                (orig, self, node) => { using var s = new Scope(_scopeShopOffers, "update_mel"); orig(self, node); };
         }
 
         // ===============================================================

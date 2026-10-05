@@ -266,5 +266,27 @@ namespace MioAP
         /// <summary>Every save entry in a category, e.g. all TRINKET_SLOT_UPGRADE:N.</summary>
         public IReadOnlyList<string> GetEntriesInCategory(string category) =>
             _entriesByCategory.TryGetValue(category, out var l) ? l : Array.Empty<string>();
+
+        /// <summary>
+        /// Every distinct vanilla save entry among the locations in one room.
+        /// Scans rather than using an index: this builds a scope once at
+        /// startup, so it isn't on any hot path.
+        /// </summary>
+        public string[] GetVanillaEntriesInRoom(string roomName)
+        {
+            var entries = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var loc in jsonData.Locations)
+            {
+                if (!string.Equals(loc.RoomName, roomName, StringComparison.Ordinal)) continue;
+
+                string? entry = SaveEntryForLocation(loc);
+                if (entry != null) entries.Add(entry);
+            }
+
+            var result = new string[entries.Count];
+            entries.CopyTo(result);
+            return result;
+        }
     }
 }
