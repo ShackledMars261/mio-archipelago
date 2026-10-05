@@ -337,5 +337,43 @@ namespace MioAP
         }
 
         public void SendLocationCheck(Location location) => SendLocationCheck(location.Id);
+
+        /// <summary>
+        /// Asks the server to hint what these locations hold, so trackers can
+        /// show Mel's stock. Safe from the game thread: never awaited.
+        ///
+        /// CreateAndAnnounceOnce makes re-scouting silent, so this can be
+        /// called on every grid rebuild without spamming anyone's chat.
+        /// Returns false if nothing was sent, so the caller can retry later.
+        /// </summary>
+        public bool SendHints(IReadOnlyList<long> locationIds)
+        {
+            if (locationIds.Count == 0) return true;
+
+            if (!IsConnected || _session == null)
+            {
+                LogMessage($"[AP] not connected; dropping {locationIds.Count} hint(s)");
+                return false;
+            }
+
+            var ids = new long[locationIds.Count];
+            for (int i = 0; i < ids.Length; i++) ids[i] = locationIds[i];
+
+            try
+            {
+                _ = _session.Locations
+                    .ScoutLocationsAsync(HintCreationPolicy.CreateAndAnnounceOnce, ids)
+                    .ContinueWith(t => LogMessage(t.IsFaulted
+                        ? "[AP] hint scout failed: " + t.Exception?.GetBaseException().Message
+                        : $"[AP] hinted {ids.Length} shop location(s)"));
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogMessage("[AP] hint scout failed: " + ex);
+                return false;
+            }
+        }
     }
 }

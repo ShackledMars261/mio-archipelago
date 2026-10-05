@@ -183,6 +183,13 @@ namespace MioAP
         /// <summary>The room containing Mel's shop.</summary>
         private const string ShopRoom = "HUB_hub_shop";
 
+        /// <summary>
+        /// Shop locations already scouted, so the per-frame grid rebuild
+        /// doesn't re-send. Cleared on load, since a different save is a
+        /// different multiworld.
+        /// </summary>
+        private readonly HashSet<int> _hintedShopLocations = new();
+
         public HooksManager(Action<string> loggingCBMethod, DataManager dataManager, ArchipelagoManager apManager, Action<string> showToastMethod)
         {
             _loggingCBMethod = loggingCBMethod;
@@ -209,8 +216,6 @@ namespace MioAP
             if (Diagnostics) BuildSymbolTable();
 #pragma warning restore CS0162
 
-
-
             // Per-frame pump for queued Archipelago work.
             On.MioGame.On_Game.fixed_update.Prefix += fixed_update_Prefix;
 
@@ -225,6 +230,9 @@ namespace MioAP
 
             // Skip Samsk tubes in order to prevent potential soft locks.
             On.MioGame.GlobalFunctions.game.On_game.glitch_state_update.Prefix += Glitch_state_update_Prefix;
+
+            // Sends hints to Archipelago for viewed shop offers.
+            On.MioGame.On_Workshop_ui.update_item_grid.Suffix += Update_item_grid_Suffix;
 
             InitScopeHooks();
 
@@ -767,6 +775,45 @@ namespace MioAP
                 game.exit_glitch();
             }
             catch (Exception ex) { LogMessage("[hooks] glitch exit failed: " + ex); }
+        }
+
+        /// <summary>
+        /// Hints whatever Mel is currently offering. Reading the grid the game
+        /// just built is how we learn which offers are visible without
+        /// reimplementing the scrapling tier conditions.
+        /// </summary>
+        private unsafe void Update_item_grid_Suffix(Workshop_ui* __this, Node2* n)
+        {
+            try
+            {
+                if (!apManager.IsConnected) return;
+
+                List<long>? fresh = null;
+                ref var grid = ref __this->item_grid;
+                Workshop_ui_item* items = (Workshop_ui_item*)grid.data.data;
+                if (items == null) return;
+
+                for (uint i = 0; i < grid.count; i++)
+                {
+                    var item = items[i].item;
+                    if (item == null) continue;
+
+                    string id = Util.MioStringToString(item->id.@ref);
+
+                    Location? loc = dataManager.ResolveLocation(id, ShopRoom);
+                    if (loc == null) continue;
+
+                    if (!_hintedShopLocations.Add(loc.Id)) continue;
+                    (fresh ??= new List<long>()).Add(loc.Id);
+                }
+
+                if (fresh == null) return;
+
+                // Un-record on failure so a reconnect retries them.
+                if (!apManager.SendHints(fresh))
+                    foreach (long id in fresh) _hintedShopLocations.Remove((int)id);
+            }
+            catch (Exception ex) { LogMessage("[hooks] shop hint failed: " + ex); }
         }
 
         // ===============================================================
