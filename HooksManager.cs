@@ -41,11 +41,21 @@ namespace MioAP
 
         /// <summary>
         /// Enables the caller-attribution diagnostics: the symbol table, stack
-        /// scanning, and the [has-unscoped] / [loot1] logs. These exist to find
-        /// pickup call sites that still need a scope. Off for release builds;
-        /// the symbol table alone costs ~11k reflection reads at startup.
+        /// scanning, and the [has-unscoped] / [loot1] / [popup] logs. These exist
+        /// to find pickup call sites that still need a scope.
+        ///
+        /// This is the one to flip while debugging. A Release build forces
+        /// Diagnostics off regardless of what it says here, so the cost can't
+        /// reach players: the symbol table alone is ~11k reflection reads at
+        /// startup, and the stack scan runs on every Mio::has call.
         /// </summary>
-        private const bool Diagnostics = true;
+        private const bool DiagnosticsWanted = true;
+
+#if DEBUG
+        private const bool Diagnostics = DiagnosticsWanted;
+#else
+        private const bool Diagnostics = false;   // never ships on
+#endif
 
         // ---------------------------------------------------------------
         // Save entries and categories
@@ -175,9 +185,9 @@ namespace MioAP
 
         public unsafe void InitHooks()
         {
+#pragma warning disable CS0162
             if (Diagnostics) BuildSymbolTable();
-
-            On.MioGame.On_Metagame.go_to_game.Prefix += Go_to_game_Prefix;
+#pragma warning restore CS0162
 
             // Per-frame pump for queued Archipelago work.
             On.MioGame.On_Game.fixed_update.Prefix += fixed_update_Prefix;
@@ -197,11 +207,6 @@ namespace MioAP
             InitScopeHooks();
 
             LogMessage("[hooks] installed");
-        }
-
-        private unsafe void Go_to_game_Prefix(Metagame* self, Metagame.Main_menu.Action action)
-        {
-            LogMessage("go to game called");
         }
 
         /// <summary>
@@ -550,7 +555,9 @@ namespace MioAP
             {
                 string id = Util.MioStringToString(*item_id);
 
+#pragma warning disable CS0162
                 if (Diagnostics) ReportIfUnscoped(orig, __this, id);
+#pragma warning restore CS0162
 
                 string? shadow = ShadowFor(id);
                 if (shadow != null)
@@ -573,8 +580,10 @@ namespace MioAP
                 string id = Util.MioStringToString(*item_id);
                 ref Game game = ref MioGame.Globals.game;
 
+#pragma warning disable CS0162
                 if (Diagnostics)
                     LogMessage($"[loot1] '{id}' scope={_scopeName ?? "-"}{ScanStackForGameFrames()}");
+#pragma warning restore CS0162
 
                 // Second half of a carcass pickup: a branch below already sent
                 // the check, so drop the vanilla currency grant that follows.
@@ -642,7 +651,9 @@ namespace MioAP
             {
                 string id = Util.MioStringToString(*item_id);
 
+#pragma warning disable CS0162
                 if (Diagnostics) LogMessage($"[popup] '{id}'");
+#pragma warning restore CS0162
 
                 if (id == FullPearlsEntry) return;
                 if (dataManager.IsApItem(id) && id != LiquidNacreEntry) return;
