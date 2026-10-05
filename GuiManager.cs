@@ -87,8 +87,15 @@ namespace MioAP
         private readonly Stopwatch _clock = Stopwatch.StartNew();
 
         // ---- connection fields ----
-        private readonly byte[] _host = NewBuf("127.0.0.1", 64);
-        private readonly byte[] _port = NewBuf("38281", 8);
+#if DEBUG
+        private const string DefaultHost = "127.0.0.1";
+        private const string DefaultPort = "38281";
+#else
+        private const string DefaultHost = "archipelago.gg";
+        private const string DefaultPort = "";      // rooms get a per-room port
+#endif
+        private readonly byte[] _host = NewBuf(DefaultHost, 64);
+        private readonly byte[] _port = NewBuf(DefaultPort, 8);
         private readonly byte[] _slot = NewBuf("", 64);
         private readonly byte[] _password = NewBuf("", 64);
 
