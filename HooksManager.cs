@@ -145,13 +145,16 @@ namespace MioAP
         };
 
         /// <summary>
-        /// Set when a Nacre carcass pickup is intercepted, so the vanilla
-        /// SOLID_DROPLETS grant that follows in the same interaction is skipped.
+        /// A carcass pickup grants its currency in a second loot call - Nacre
+        /// bumps SOLID_DROPLETS, an Old Core bumps FULL_PEARLS. When the first
+        /// call is intercepted, this holds the entry that follow-up will use so
+        /// it can be dropped too.
         ///
-        /// Known limitation: if that second call never arrives the flag stays
-        /// set and will swallow the next legitimate Nacre pickup instead.
+        /// Known limitation: a latch with no expiry. If the follow-up never
+        /// arrives it stays armed and swallows the next legitimate pickup of
+        /// that entry instead.
         /// </summary>
-        [ThreadStatic] private static bool _suppressNextNacre;
+        [ThreadStatic] private static string? _suppressNextLoot;
 
         /// <summary>The intro sequence room, where being in the glitch world is alright.</summary>
         private const string GlitchZone = "GW_intro_jump_P1";
@@ -562,8 +565,8 @@ namespace MioAP
         }
 
         private unsafe Save_entry* loot_1_Hook(
-            On.MioGame.On_Game.orig_loot_1 orig,
-            Game* __this, MioGame.String* item_id, int count, Loot_flags flags)
+    On.MioGame.On_Game.orig_loot_1 orig,
+    Game* __this, MioGame.String* item_id, int count, Loot_flags flags)
         {
             try
             {
@@ -573,11 +576,11 @@ namespace MioAP
                 if (Diagnostics)
                     LogMessage($"[loot1] '{id}' scope={_scopeName ?? "-"}{ScanStackForGameFrames()}");
 
-                // Second half of a Nacre pickup: the carcass branch below already
-                // sent the check, so drop the vanilla grant that follows.
-                if (id == NacreEntry && _suppressNextNacre)
+                // Second half of a carcass pickup: a branch below already sent
+                // the check, so drop the vanilla currency grant that follows.
+                if (_suppressNextLoot != null && id == _suppressNextLoot)
                 {
-                    _suppressNextNacre = false;
+                    _suppressNextLoot = null;
                     MioGame.String e = Util.StringToMioString(id);
                     return game.save.peek(&e);
                 }
@@ -588,7 +591,7 @@ namespace MioAP
                 if (carcassLoc != null)
                 {
                     apManager.SendLocationCheck(carcassLoc);
-                    _suppressNextNacre = true;
+                    _suppressNextLoot = NacreEntry;
 
                     // Skipping orig is what suppresses the vanilla Nacre grant.
                     return AcquireWithCount(ref game, id);
@@ -607,10 +610,13 @@ namespace MioAP
                         LogMessage($"[AP] unresolved location: '{id}' in room '{room}' - no check sent");
 
                     // Old Core locations mark themselves consumed with their real
-                    // CARCASS entry, which is what despawns the world pickup.
-                    string consumedEntry = id.StartsWith(CarcassCategory + ":", StringComparison.Ordinal)
-                        ? id
-                        : DataManager.ShadowEntry(id);
+                    // CARCASS entry, which is what despawns the world pickup. The
+                    // pickup also bumps FULL_PEARLS in a second loot call, which
+                    // has to go too or the player banks a core AP never sent.
+                    bool isOldCore = id.StartsWith(CarcassCategory + ":", StringComparison.Ordinal);
+                    if (isOldCore) _suppressNextLoot = FullPearlsEntry;
+
+                    string consumedEntry = isOldCore ? id : DataManager.ShadowEntry(id);
 
                     return AcquireWithCount(ref game, consumedEntry);
                 }
@@ -620,13 +626,25 @@ namespace MioAP
             return orig(__this, item_id, count, flags);
         }
 
-        /// <summary>Suppresses the vanilla "you got X" popup for AP-managed pickups.</summary>
+        /// <summary>
+        /// Suppresses the vanilla "you got X" popup for AP-managed pickups.
+        ///
+        /// FULL_PEARLS is suppressed too, despite not being an AP item itself:
+        /// an Old Core pickup raises its popup separately from the loot call the
+        /// loot hook drops, so without this the player is told they received a
+        /// core they didn't get. Nothing legitimate is hidden - a core sent by
+        /// Archipelago is written straight to the save and never reaches here.
+        /// </summary>
         private unsafe void loot_popup_start_Hook(
             On.MioGame.On_Ui_loot_popup.orig_start orig, Ui_loot_popup* __this, MioGame.String* item_id)
         {
             try
             {
                 string id = Util.MioStringToString(*item_id);
+
+                if (Diagnostics) LogMessage($"[popup] '{id}'");
+
+                if (id == FullPearlsEntry) return;
                 if (dataManager.IsApItem(id) && id != LiquidNacreEntry) return;
             }
             catch (Exception ex) { LogMessage("[hooks] loot popup failed: " + ex); }
