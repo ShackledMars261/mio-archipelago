@@ -960,8 +960,10 @@ namespace MioAP
 
                 // Mismatched counts mean the row filter let something through
                 // or dropped a label, which would shift every row by one.
+#pragma warning disable CS0162
                 if (Diagnostics)
                     LogMessage($"[shop] {grid.count} grid entries, {_rowTextNodes.Count} label nodes");
+#pragma warning restore CS0162
 
                 int rows = Math.Min(tiles.Length, _rowTextNodes.Count);
                 for (int i = 0; i < rows; i++)
