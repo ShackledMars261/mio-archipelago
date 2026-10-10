@@ -18,3 +18,5 @@ branches:
     prefix: 'bugfix/'
   - label: enhancement
     prefix: 'feature/'
+  - label: misc
+    prefix: 'misc/'
