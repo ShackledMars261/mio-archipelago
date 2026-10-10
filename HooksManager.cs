@@ -62,6 +62,14 @@ namespace MioAP
         private const bool Diagnostics = false;   // never ships on
 #endif
 
+        /// <summary>
+        /// Report unscoped calls for this entry even when its location hasn't
+        /// been checked. The normal filter requires the shadow to be set, which
+        /// is no use when the bug is that the pickup can't be taken at all.
+        /// Empty string disables it.
+        /// </summary>
+        private const string ProbeEntry = "";
+
         // ---------------------------------------------------------------
         // Save entries and categories
         // ---------------------------------------------------------------
@@ -158,6 +166,44 @@ namespace MioAP
             "UNLOCK:HOOK", "UNLOCK:HIT_RECHARGE", "UNLOCK:BLOCK",
             "UNLOCK:GLIDE", "UNLOCK:SPIDER", "UNLOCK:ORB_SHOOT", "UNLOCK:SPIDER_GOO",
         };
+
+        /// <summary>
+        /// The bunker key. Its pickup is Halyn's terminal rather than a loot
+        /// node, so none of the generic pickup scopes cover it - unscoped, a
+        /// player who already holds the key from Archipelago can't interact
+        /// with the terminal and the check can never be sent.
+        /// </summary>
+        private static readonly string[] ScopeBunkerKey = { BunkerKeyEntry };
+
+        private const string BunkerKeyEntry = "KEY:BUNKER_KEY";
+
+        /// <summary>
+        /// Rooms whose bunker door has to track the pickup rather than the key.
+        ///
+        /// Three doors open on the bunker key. Two of them are the way out of
+        /// the room the key is found in, so a key arriving early from
+        /// Archipelago must not open them, and taking the pickup must. The
+        /// third gates a large area and genuinely needs the real key.
+        ///
+        /// There is no per-door hook to scope: the lock is scripted rather
+        /// than authored into Door_node.starts_locked_by_key, which reports no
+        /// key for any of them. What does separate them is the room the query
+        /// runs in - one door each, in two different wings:
+        ///
+        ///     ST_security_spider_P4   key room     -> DOOR:TO_SECURITY_ASC_P2_2
+        ///     ST_security_spider_P5   hallway out  -> DOOR:TO_SECURITY_ASC_P2
+        ///     GA_vin_transi_F3        the big door -> DOOR:door_ga_vin_bunker_2
+        ///
+        /// Only the first two are listed, so the third keeps the real entry.
+        /// </summary>
+        private static readonly string[] BunkerPickupRooms =
+            { "ST_security_spider_P4", "ST_security_spider_P5" };
+
+        /// <summary>
+        /// True while the player is in one of those rooms. Refreshed once a
+        /// frame, so Mio::has pays a bool test rather than a string compare.
+        /// </summary>
+        private bool _inBunkerPickupRoom;
 
         /// <summary>
         /// Mel's offers, by the save entry of their vanilla reward. Narrow
@@ -360,6 +406,9 @@ namespace MioAP
             On.MioGame.On_Hub_general.update_tuner3.Hook +=
                 static (orig, self, node) => { using var s = new Scope(ScopeMap, "Hub_general_tuner3"); orig(self, node); };
 
+            On.MioGame.On_Halyn_assistant_terminal.update_all.Hook +=
+                static (orig, w) => { using var s = new Scope(ScopeBunkerKey, "halyn_terminal"); orig(w); };
+
             // "Give this if the player hasn't got it" - the guard re-runs every
             // frame, so an unscoped one spins forever on an AP item: we consume
             // the loot and never write the real entry. Scoped, the guard reads
@@ -474,6 +523,15 @@ namespace MioAP
 
         private unsafe void fixed_update_Prefix(Game* __this)
         {
+            try
+            {
+                // Ahead of the drain, which bails out at the menu - this has to
+                // keep up with the room either way or it latches on stale state.
+                string room = Util.MioStringToString(MioGame.Globals.game.current_zone_id);
+                _inBunkerPickupRoom = Array.IndexOf(BunkerPickupRooms, room) >= 0;
+            }
+            catch (Exception ex) { LogMessage("[hooks] room refresh failed: " + ex); }
+
             try
             {
                 // The queues keep filling while we wait, so nothing is lost.
@@ -653,6 +711,11 @@ namespace MioAP
         /// </summary>
         private string? ShadowFor(string saveEntry)
         {
+            // Room-conditional rather than scope-driven, and so ahead of the
+            // scope lookup: there is no caller to hook. See BunkerPickupRooms.
+            if (_inBunkerPickupRoom && saveEntry == BunkerKeyEntry)
+                return DataManager.ShadowEntry(saveEntry);
+
             string[]? scope = _scopeEntries;
             if (scope == null) return null;
 
@@ -690,7 +753,7 @@ namespace MioAP
             // Fast path. Mio::has is one of the hottest functions in the game and
             // most calls happen outside any scope, where the real entry is
             // authoritative - so skip marshalling the id entirely.
-            if (_scopeEntries == null && !Diagnostics)
+            if (_scopeEntries == null && !_inBunkerPickupRoom && !Diagnostics)
                 return orig(__this, item_id);
 
             try
@@ -1076,7 +1139,7 @@ namespace MioAP
         {
             "MioGame.Achievements.evaluate",           // achievement polling on room entry
             "MioGame.Tab_trinkets.ui_update",          // inventory UI
-            "MioGame.Amytis_encounter.skip_cutscene",  // misattributed Game::update_doors
+            "MioGame.Amytis_encounter.skip_cutscene",  // misattributed
         };
 
         /// <summary>
@@ -1091,9 +1154,14 @@ namespace MioAP
             if (dataManager.ResolveLocation(id, room) == null) return;
 
             // Ask the game whether the shadow entry is set, i.e. whether this
-            // location has already been checked.
-            MioGame.String sh = Util.StringToMioString(DataManager.ShadowEntry(id));
-            if (!orig(__this, &sh)) return;
+            // location has already been checked - the state an uncovered pickup
+            // would respawn in. ProbeEntry skips that filter and reports
+            // regardless, for the opposite bug: a pickup that never appears.
+            if (!string.Equals(id, ProbeEntry, StringComparison.Ordinal))
+            {
+                MioGame.String sh = Util.StringToMioString(DataManager.ShadowEntry(id));
+                if (!orig(__this, &sh)) return;
+            }
 
             string caller = TopGameFrameName();
             if (BenignCallers.Contains(caller)) return;
