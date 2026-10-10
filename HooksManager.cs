@@ -62,6 +62,14 @@ namespace MioAP
         private const bool Diagnostics = false;   // never ships on
 #endif
 
+        /// <summary>
+        /// Report unscoped calls for this entry even when its location hasn't
+        /// been checked. The normal filter requires the shadow to be set, which
+        /// is no use when the bug is that the pickup can't be taken at all.
+        /// Empty string disables it.
+        /// </summary>
+        private const string ProbeEntry = "KEY:BUNKER_KEY";
+
         // ---------------------------------------------------------------
         // Save entries and categories
         // ---------------------------------------------------------------
@@ -158,6 +166,14 @@ namespace MioAP
             "UNLOCK:HOOK", "UNLOCK:HIT_RECHARGE", "UNLOCK:BLOCK",
             "UNLOCK:GLIDE", "UNLOCK:SPIDER", "UNLOCK:ORB_SHOOT", "UNLOCK:SPIDER_GOO",
         };
+
+        /// <summary>
+        /// The bunker key. Its pickup is Halyn's terminal rather than a loot
+        /// node, so none of the generic pickup scopes cover it - unscoped, a
+        /// player who already holds the key from Archipelago can't interact
+        /// with the terminal and the check can never be sent.
+        /// </summary>
+        private static readonly string[] ScopeBunkerKey = { "KEY:BUNKER_KEY" };
 
         /// <summary>
         /// Mel's offers, by the save entry of their vanilla reward. Narrow
@@ -277,6 +293,29 @@ namespace MioAP
             // Skip Samsk tubes in order to prevent potential soft locks.
             On.MioGame.GlobalFunctions.game.On_game.glitch_state_update.Prefix += Glitch_state_update_Prefix;
 
+            On.MioGame.On_Door_node.activate.Hook +=
+                (orig, n, dn) =>
+                {
+                    if (Diagnostics)
+                    {
+                        try
+                        {
+                            string key = "<none>";
+                            if (dn->starts_locked_by_key.status_flag != 0)
+                            {
+                                var kl = dn->starts_locked_by_key.peek();
+                                if (kl != null) key = Util.MioStringToString(kl->key_id.@ref);
+                            }
+
+                            LogMessage($"[door] id='{Util.MioStringToString(dn->door_id.user_defined)}'"
+                         + $" key='{key}' node=0x{(IntPtr)n:X}");
+                        }
+                        catch (Exception ex) { LogMessage("[hooks] door probe failed: " + ex); }
+                    }
+
+                    orig(n, dn);
+                };
+
             InitShopHooks();
             InitScopeHooks();
 
@@ -359,6 +398,9 @@ namespace MioAP
 
             On.MioGame.On_Hub_general.update_tuner3.Hook +=
                 static (orig, self, node) => { using var s = new Scope(ScopeMap, "Hub_general_tuner3"); orig(self, node); };
+
+            On.MioGame.On_Halyn_assistant_terminal.update_all.Hook +=
+                static (orig, w) => { using var s = new Scope(ScopeBunkerKey, "halyn_terminal"); orig(w); };
 
             // "Give this if the player hasn't got it" - the guard re-runs every
             // frame, so an unscoped one spins forever on an AP item: we consume
@@ -1092,8 +1134,16 @@ namespace MioAP
 
             // Ask the game whether the shadow entry is set, i.e. whether this
             // location has already been checked.
-            MioGame.String sh = Util.StringToMioString(DataManager.ShadowEntry(id));
-            if (!orig(__this, &sh)) return;
+            //MioGame.String sh = Util.StringToMioString(DataManager.ShadowEntry(id));
+            //if (!orig(__this, &sh)) return;
+
+            // A probe entry reports regardless, for the opposite bug: a pickup
+            // that never appears in the first place.
+            if (!string.Equals(id, ProbeEntry, StringComparison.Ordinal))
+            {
+                MioGame.String sh = Util.StringToMioString(DataManager.ShadowEntry(id));
+                if (!orig(__this, &sh)) return;
+            }
 
             string caller = TopGameFrameName();
             if (BenignCallers.Contains(caller)) return;
