@@ -274,6 +274,16 @@ namespace MioAP
         /// </summary>
         private readonly Dictionary<string, IntPtr> _locaOverrides = new(StringComparer.Ordinal);
 
+        /// <summary>
+        /// The base ending (Ati) has been beaten. Recorded in the save rather than
+        /// only sent, so a kill that lands while disconnected still reports on the
+        /// next connect and a reload can't lose it. Shii's ending will want its own
+        /// entry when it becomes a second victory condition.
+        /// </summary>
+        private const string VictoryEntry = "ARCHIPELAGO_META:VICTORY";
+
+        private bool _victoryReported;
+
         public HooksManager(Action<string> loggingCBMethod, DataManager dataManager, ArchipelagoManager apManager, Action<string> showToastMethod)
         {
             _loggingCBMethod = loggingCBMethod;
@@ -322,6 +332,21 @@ namespace MioAP
 
             // Skip Samsk tubes in order to prevent potential soft locks.
             On.MioGame.GlobalFunctions.game.On_game.glitch_state_update.Prefix += Glitch_state_update_Prefix;
+
+            // Ati's defeat. update_death is the death state's per-frame update, so it
+            // runs for the whole animation - MarkVictory is idempotent on its save
+            // entry, which is what makes that harmless. The health check is the part
+            // that matters: Boss_health drives phase changes through start_next_phase,
+            // so rt.dead is only true once the fight is actually over.
+            On.MioGame.On_Sasuke.update_death.Suffix +=
+                (self, n) =>
+                {
+                    try
+                    {
+                        if (self->health.rt.dead) MarkVictory();
+                    }
+                    catch (Exception ex) { LogMessage("[hooks] victory hook failed: " + ex); }
+                };
 
             InitShopHooks();
             InitScopeHooks();
@@ -553,6 +578,7 @@ namespace MioAP
                         _hintedShopLocations.Clear();
                         _locaOverrides.Clear();
                         apManager.ClearScouts();
+                        apManager.ClearGoalSent();
                     }
                 }
                 else if (!_shopPrescouted && _shopLocationIds.Length > 0)
@@ -561,6 +587,19 @@ namespace MioAP
                 }
             }
             catch (Exception ex) { LogMessage("[hooks] shop pre-scout failed: " + ex); }
+
+            try
+            {
+                if (!_victoryReported && apManager.IsConnected)
+                {
+                    ref Game game = ref MioGame.Globals.game;
+                    MioGame.String v = Util.StringToMioString(VictoryEntry);
+
+                    if (game.save.acquired_count(&v) > 0)
+                        _victoryReported = apManager.SendGoalCompletion();
+                }
+            }
+            catch (Exception ex) { LogMessage("[hooks] goal report failed: " + ex); }
         }
 
         /// <summary>
@@ -1168,6 +1207,20 @@ namespace MioAP
 
             if (_unscopedReported.Add(room + "|" + id + "|" + caller))
                 LogMessage($"[has-unscoped] '{id}' in '{room}' from {caller}{ScanStackForGameFrames()}");
+        }
+
+        /// <summary>Records the base ending as beaten and reports it to the server.</summary>
+        private unsafe void MarkVictory()
+        {
+            ref Game game = ref MioGame.Globals.game;
+
+            MioGame.String v = Util.StringToMioString(VictoryEntry);
+            if (game.save.acquired_count(&v) > 0) return;   // already recorded
+
+            AcquireWithCount(ref game, VictoryEntry);
+            LogMessage("[AP] victory recorded (Ati)");
+
+            _victoryReported = apManager.SendGoalCompletion();
         }
 
         /// <summary>

@@ -1,5 +1,6 @@
 ﻿using Archipelago.MultiClient.Net;
 using Archipelago.MultiClient.Net.Enums;
+using Archipelago.MultiClient.Net.Packets;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -458,6 +459,39 @@ namespace MioAP
             if ((flags & ItemFlags.Advancement) != 0) return "Progression";
             if ((flags & ItemFlags.NeverExclude) != 0) return "Useful";
             return "Filler";
+        }
+
+        private bool _goalSent;
+
+        public void ClearGoalSent() => _goalSent = false;
+
+        /// <summary>
+        /// Tells the server this slot has finished its game. Idempotent per
+        /// session - the server tolerates a repeat, but the pump would otherwise
+        /// send one every frame. Returns false if it couldn't go out, so the
+        /// caller can try again later.
+        /// </summary>
+        public bool SendGoalCompletion()
+        {
+            if (_goalSent) return true;
+            if (!IsConnected || _session == null) return false;
+
+            try
+            {
+                _session.Socket.SendPacket(new StatusUpdatePacket
+                {
+                    Status = ArchipelagoClientState.ClientGoal
+                });
+
+                _goalSent = true;
+                LogMessage("[AP] goal reported");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogMessage("[AP] goal report failed: " + ex);
+                return false;
+            }
         }
     }
 }
