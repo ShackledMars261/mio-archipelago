@@ -285,42 +285,76 @@ namespace MioAP
         private bool _victoryReported;
 
         /// <summary>
-        /// Boss save entry -> the name the browser map knows the boss by. The game
-        /// writes these itself on a kill, so there are no per-boss hooks: the pump
-        /// watches the save and reports whatever it finds. A boss beaten while
-        /// disconnected, or before this feature existed, is picked up on the next
-        /// scan.
+        /// Save entry -> the event name the browser map expects. The game writes
+        /// all of these itself, so there are no per-event hooks: the pump watches
+        /// the save and reports what it finds, which also picks up anything done
+        /// while disconnected or before this feature shipped.
+        ///
+        /// Mel Kidnapped and Mel Freed are absent on purpose - they live in
+        /// plotpoints.mel.quest rather than in a save entry, and are handled
+        /// separately.
         /// </summary>
-        private static readonly (string Entry, string Boss)[] BossEntries =
+        private static readonly (string Entry, string Event)[] MapEvents =
         {
-            ("BOSS:CRABASH",         "Egis"),
-            ("BOSS:BLACKSMITH",      "Acat"),
-            ("BOSS:ZANGY",           "Calderon"),
-            ("BOSS:TRAPU",           "Atmos"),
-            ("BOSS:DOOR",            "Poltergates"),
-            ("BOSS:TWIN",            "Sol & Vin"),
-            ("BOSS:VINE",            "Flora"),
-            ("BOSS:SCARECROW",       "Crow"),
-            ("BOSS:DEVOURER",        "Lombre"),
-            ("BOSS:BAMBY",           "Nabuu"),
-            ("BOSS:SPIDY",           "Friends :)"),
-            ("BOSS:TWIN_CRABASH",    "Ancile & Targa"),
-            ("BOSS:RAMBO",           "Debby"),
-            ("BOSS:SAW_LONGUE",      "Sawlong"),
-            ("BOSS:PROJEKT",         "Anra"),
-            ("BOSS:WASHING_MACHINE", "Vlad"),
-            ("BOSS:SASUKE",          "Ati"),
-            ("BOSS:SHII",            "Shii"),
+            ("DIALOG:TXT_SHII_FILLED_3",       "Shii Partially Awakened"),
+            ("DIALOG:TXT_SHII_FILLING_DONE",   "Shii Fully Awakened"),
+
+            ("BOSS:BLACKSMITH",                "Acat Defeated"),
+            ("BOSS:TWIN_CRABASH",              "Ancile & Targa Defeated"),
+            ("BOSS:PROJEKT",                   "AnRa & Dr. Halyn Defeated"),
+            ("BOSS:SASUKE",                    "Ati Defeated"),
+            ("BOSS:TRAPU",                     "Atmos Defeated"),
+            ("BOSS:ZANGY",                     "Calderon Defeated"),
+            ("BOSS:SCARECROW",                 "Crow Defeated"),
+            ("BOSS:RAMBO",                     "Debby Defeated"),
+            ("BOSS:CRABASH",                   "Egis Defeated"),
+            ("BOSS:VINE",                      "Flora Defeated"),
+            ("BOSS:SPIDY",                     "Friends :) Defeated"),
+            ("BOSS:DEVOURER",                  "Lombre Defeated"),
+            ("BOSS:BAMBY",                     "Nabuu Defeated"),
+            ("BOSS:DOOR",                      "Poltergates Defeated"),
+            ("BOSS:SAW_LONGUE",                "Sawlong Defeated"),
+            ("BOSS:SHII",                      "Shii Defeated"),
+            ("BOSS:TWIN",                      "Sol & Vin Defeated"),
+            ("BOSS:WASHING_MACHINE",           "Vlad Defeated"),
+
+            ("HEART_ATTACK:INTRO",             "Starting Tremor"),
+            ("HEART_ATTACK:TUBE",              "Debby Tremor"),
+            ("HEART_ATTACK:LATE_GAME",         "\"Other\" Tremor"),
+            ("HEART_ATTACK:HORNFELL",          "Hornfell Tremor"),
+
+            ("HUB_TUNER:LIHO",                 "Turn In Liho's Voice"),
+            ("HUB_TUNER:HALYN",                "Turn In Halyn's Voice"),
+            ("HUB_TUNER:ASMA",                 "Turn In Asma's Voice"),
+            ("HUB_TUNER:AMYTIS",               "Turn In Amytis' Voice"),
+
+            ("DIALOG:TXT_HUB_MEL_WAITING_ONCE", "Find Mel"),
+            ("DIALOG:TXT_RAD_FREE",            "Find Rad"),
+            ("DIALOG:TXT_SIN_EXIT",            "Find Sin"),
+            ("DIALOG:TXT_COS_EXIT",            "Find Cos"),
+            ("DIALOG:TXT_TAN_EXIT",            "Find Tan"),
+
+            ("REBUILD_NPC:PUPPET_ALICE",       "Rescue Alice"),
+            ("CODE:LQ_UDG_BIG_FAN",            "Foundations Big Fan"),
+            ("CODE:ST_CUVE_01_ACTIVATED",      "Pump #1"),
+            ("CODE:ST_CUVE_02_ACTIVATED",      "Pump #2"),
+            ("CODE:ST_CUVE_03_ACTIVATED",      "Pump #3"),
+            ("CODE:ST_CUVE_04_ACTIVATED",      "Pump #4"),
+            ("CODE:WHEEL_FINGER_REPAIRED",     "Wheel Repaired"),
         };
 
-        private readonly HashSet<string> _pushedBosses = new(StringComparer.Ordinal);
+        private const string MelKidnappedEvent = "Mel Kidnapped";
+        private const string MelFreedEvent = "Mel Freed";
+
+        /// <summary>Events already on the server, keyed by event name.</summary>
+        private readonly HashSet<string> _pushedEvents = new(StringComparer.Ordinal);
 
         /// <summary>
         /// Frames between scans. Every frame would be 18 string marshals and save
         /// lookups for something that changes a handful of times in a whole run.
         /// </summary>
-        private const int BossScanInterval = 60;
-        private int _bossScanCountdown;
+        private const int EventScanInterval = 60;
+        private int _eventScanCountdown;
 
         public HooksManager(Action<string> loggingCBMethod, DataManager dataManager, ArchipelagoManager apManager, Action<string> showToastMethod)
         {
@@ -641,29 +675,29 @@ namespace MioAP
 
             try
             {
-                if (apManager.IsConnected && --_bossScanCountdown <= 0)
+                if (apManager.IsConnected
+                    && _pushedEvents.Count < MapEvents.Length + 2   // +2: the Mel pair
+                    && --_eventScanCountdown <= 0)
                 {
-                    _bossScanCountdown = BossScanInterval;
+                    _eventScanCountdown = EventScanInterval;
 
                     ref Game game = ref MioGame.Globals.game;
 
-                    foreach ((string entry, string boss) in BossEntries)
+                    foreach ((string entry, string name) in MapEvents)
                     {
-                        if (_pushedBosses.Contains(entry)) continue;
+                        if (_pushedEvents.Contains(name)) continue;
 
                         MioGame.String e = Util.StringToMioString(entry);
-                        if (game.save.acquired_count(&e) == 0) continue;
-
-                        if (apManager.AddToList(ArchipelagoManager.EventsKey, boss + " Defeated",
-                            ArchipelagoManager.UpdateEventsBounce))
-                        {
-                            LogMessage("SENT BOSS DEFEATED EVENT: \"" + boss + " Defeated\"");
-                            _pushedBosses.Add(entry);
-                        }
+                        if (game.save.acquired_count(&e) > 0) PushEvent(name);
                     }
+
+                    // Mel's capture and rescue are quest states, not save entries.
+                    var quest = game.save.plotpoints.mel.quest;
+                    if (quest >= Plotpoints.Mel.Quest.Captured) PushEvent(MelKidnappedEvent);
+                    if (quest >= Plotpoints.Mel.Quest.Returned) PushEvent(MelFreedEvent);
                 }
             }
-            catch (Exception ex) { LogMessage("[hooks] boss scan failed: " + ex); }
+            catch (Exception ex) { LogMessage("[hooks] event scan failed: " + ex); }
         }
 
         /// <summary>
@@ -1214,6 +1248,16 @@ namespace MioAP
             if (s.Length == 0) return false;
             foreach (char c in s) if (!char.IsDigit(c)) return false;
             return true;
+        }
+
+        /// <summary>Reports an event once. Repeat calls are free.</summary>
+        private void PushEvent(string name)
+        {
+            if (_pushedEvents.Contains(name)) return;
+
+            if (apManager.AddToList(ArchipelagoManager.EventsKey, name,
+                                    ArchipelagoManager.UpdateEventsBounce))
+                _pushedEvents.Add(name);
         }
 
         // ===============================================================
