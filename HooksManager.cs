@@ -284,6 +284,44 @@ namespace MioAP
 
         private bool _victoryReported;
 
+        /// <summary>
+        /// Boss save entry -> the name the browser map knows the boss by. The game
+        /// writes these itself on a kill, so there are no per-boss hooks: the pump
+        /// watches the save and reports whatever it finds. A boss beaten while
+        /// disconnected, or before this feature existed, is picked up on the next
+        /// scan.
+        /// </summary>
+        private static readonly (string Entry, string Boss)[] BossEntries =
+        {
+            ("BOSS:CRABASH",         "Egis"),
+            ("BOSS:BLACKSMITH",      "Acat"),
+            ("BOSS:ZANGY",           "Calderon"),
+            ("BOSS:TRAPU",           "Atmos"),
+            ("BOSS:DOOR",            "Poltergates"),
+            ("BOSS:TWIN",            "Sol & Vin"),
+            ("BOSS:VINE",            "Flora"),
+            ("BOSS:SCARECROW",       "Crow"),
+            ("BOSS:DEVOURER",        "Lombre"),
+            ("BOSS:BAMBY",           "Nabuu"),
+            ("BOSS:SPIDY",           "Friends :)"),
+            ("BOSS:TWIN_CRABASH",    "Ancile & Targa"),
+            ("BOSS:RAMBO",           "Debby"),
+            ("BOSS:SAW_LONGUE",      "Sawlong"),
+            ("BOSS:PROJEKT",         "Anra"),
+            ("BOSS:WASHING_MACHINE", "Vlad"),
+            ("BOSS:SASUKE",          "Ati"),
+            ("BOSS:SHII",            "Shii"),
+        };
+
+        private readonly HashSet<string> _pushedBosses = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Frames between scans. Every frame would be 18 string marshals and save
+        /// lookups for something that changes a handful of times in a whole run.
+        /// </summary>
+        private const int BossScanInterval = 60;
+        private int _bossScanCountdown;
+
         public HooksManager(Action<string> loggingCBMethod, DataManager dataManager, ArchipelagoManager apManager, Action<string> showToastMethod)
         {
             _loggingCBMethod = loggingCBMethod;
@@ -600,6 +638,32 @@ namespace MioAP
                 }
             }
             catch (Exception ex) { LogMessage("[hooks] goal report failed: " + ex); }
+
+            try
+            {
+                if (apManager.IsConnected && --_bossScanCountdown <= 0)
+                {
+                    _bossScanCountdown = BossScanInterval;
+
+                    ref Game game = ref MioGame.Globals.game;
+
+                    foreach ((string entry, string boss) in BossEntries)
+                    {
+                        if (_pushedBosses.Contains(entry)) continue;
+
+                        MioGame.String e = Util.StringToMioString(entry);
+                        if (game.save.acquired_count(&e) == 0) continue;
+
+                        if (apManager.AddToList(ArchipelagoManager.EventsKey, boss + " Defeated",
+                            ArchipelagoManager.UpdateEventsBounce))
+                        {
+                            LogMessage("SENT BOSS DEFEATED EVENT: \"" + boss + " Defeated\"");
+                            _pushedBosses.Add(entry);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) { LogMessage("[hooks] boss scan failed: " + ex); }
         }
 
         /// <summary>

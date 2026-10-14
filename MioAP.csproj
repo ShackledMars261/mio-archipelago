@@ -13,7 +13,13 @@
 			<PrivateAssets>all</PrivateAssets>
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
-		<PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+
+		<!-- Runtime asset only. Archipelago.MultiClient.Net bundles an unsigned
+			Newtonsoft.Json 11 and exposes JToken from it in its public API, so the
+			signed package has to stay out of the COMPILE set or every DataStorage
+			call fails with CS0012. The dll copied to the mod folder is still 13.x,
+			which is the one that actually executes. -->
+		<PackageReference Include="Newtonsoft.Json" Version="13.0.4" ExcludeAssets="compile" />
 
 		<!-- Compile against it, ship none of it: the loader has its own copy of
 		     PolyHook2.NET.dll and the natives behind it (PolyHook_2, cpolyhook2,
