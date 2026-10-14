@@ -1,6 +1,7 @@
 ﻿using Archipelago.MultiClient.Net;
 using Archipelago.MultiClient.Net.Enums;
 using Archipelago.MultiClient.Net.Packets;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -493,5 +494,135 @@ namespace MioAP
                 return false;
             }
         }
+
+        // ---------------------------------------------------------------
+        // Shared data storage
+        //
+        // The browser map reads these keys, so the naming is a contract with it
+        // rather than something we can change unilaterally:
+        //
+        //     Mio_<slot>_<team>_<key>
+        //
+        // Only "events" exists today - the bosses the player has beaten, as
+        // strings the map understands ("Ati Defeated"). Other keys slot in
+        // without touching this code.
+        //
+        // Global scope on purpose: Scope.Slot would have the server prefix the
+        // key with the slot, which would break the agreed name.
+        // ---------------------------------------------------------------
+
+        public const string EventsKey = "events";
+
+        private string? DataStoreKey(string key) =>
+            _session == null
+                ? null
+                : $"Mio_{_session.ConnectionInfo.Slot}_{_session.ConnectionInfo.Team}_{key}";
+
+        /// <summary>
+        /// Adds an entry to one of the map's shared lists, creating the key if the
+        /// server doesn't have it yet. Idempotent: an entry already present - put
+        /// there by us on an earlier session, or by hand on the map - is left
+        /// alone, so reconnects can't duplicate it.
+        /// </summary>
+        public bool AddToList(string key, string entry, string? bounceType = null)
+        {
+            if (!IsConnected || _session == null) return false;
+
+            string? name = DataStoreKey(key);
+            if (name == null) return false;
+
+            try
+            {
+                // No-op once the key has a value, so this is safe on every call and
+                // is what creates the list on a fresh multiworld.
+                _session.DataStorage[Scope.Global, name].Initialize(new JArray());
+
+                _ = _session.DataStorage[Scope.Global, name].GetAsync<string[]>()
+                    .ContinueWith(t =>
+                    {
+                        if (t.IsFaulted)
+                        {
+                            LogMessage($"[AP] datastore read failed: {t.Exception?.GetBaseException().Message}");
+                            return;
+                        }
+
+                        try
+                        {
+                            string[]? current = t.Result;
+                            if (current != null && Array.IndexOf(current, entry) >= 0) return;
+
+                            _session.DataStorage[Scope.Global, name] += new[] { entry };
+                            LogMessage($"[AP] {key}: recorded \"{entry}\"");
+
+                            if (bounceType != null) SendBounce(bounceType);
+                        }
+                        catch (Exception ex) { LogMessage("[AP] datastore append failed: " + ex); }
+                    });
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogMessage("[AP] datastore write failed: " + ex);
+                return false;
+            }
+        }
+
+        /// <summary>Bounce type that tells the browser map to re-read its cache.</summary>
+        public const string UpdateEventsBounce = "UpdateEvents";
+
+        /// <summary>
+        /// Asks other clients on this slot to refresh. Deliberately not public to
+        /// the pump: a bounce is only correct once the write it announces has gone
+        /// out, so it is sent from the datastore continuation rather than beside it.
+        /// </summary>
+        private void SendBounce(string bounceType)
+        {
+            if (!IsConnected || _session == null) return;
+
+            try
+            {
+                _session.Socket.SendPacket(new BouncePacket
+                {
+                    Slots = new List<int> { _session.ConnectionInfo.Slot },
+                    Data = new Dictionary<string, JToken> { ["bounce_type"] = bounceType },
+                });
+            }
+            catch (Exception ex) { LogMessage("[AP] bounce failed: " + ex); }
+        }
+
+
+
+        /// <summary>
+        /// {
+        ///   "bounce_type": "TriggerPopup",
+        ///   "text": "Wow a popup", # the text
+        ///   "color": "#FF0000", # color it shows in
+        ///   "persistent": false, # whether the player needs to dismiss it
+        /// }
+        /// </summary>
+        private void SendPopupToMap(string message, string hexCode = "#FFFFFF", bool persistent = false)
+        {
+            if (!IsConnected || _session == null) return;
+
+            try
+            {
+                _session.Socket.SendPacket(new BouncePacket
+                {
+                    Slots = new List<int> { _session.ConnectionInfo.Slot },
+                    Data = new Dictionary<string, JToken>
+                    {
+                        ["bounce_type"] = "TriggerPopup",
+                        ["text"] = message,
+                        ["color"] = hexCode,
+                        ["persistent"] = persistent,
+                    },
+                });
+            }
+            catch (Exception ex) { LogMessage("[AP] popup bounce failed: " + ex); }
+        }
+
+
+
     }
 }
