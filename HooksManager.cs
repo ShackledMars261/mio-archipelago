@@ -108,25 +108,46 @@ namespace MioAP
         private static readonly Random _rng = new();
 
         /// <summary>
-        /// Save entries that need an explicit count written after acquire(), and
-        /// the value to write. A key may be a full entry ("ATTACK_POWER:1") or a
-        /// category prefix ("ATTACK_POWER") covering every entry in it; a full
-        /// entry wins over a category.
+        /// The count to write after acquire() when nothing says otherwise.
         ///
-        /// Most entries ignore count - abilities and door keys work at 0, where
-        /// existence alone means the player has it. These categories store "how
-        /// many you have" in count, so it has to be set explicitly.
+        /// Match vanilla: a completed save holds 65 of 74 entries at count 1,
+        /// and the exceptions are either state markers the mod never grants
+        /// (FLOOR_ELEVATOR) or the nacre balances, which GrantItem handles on
+        /// its own. An entry's name doesn't tell us whether its readers test
+        /// existence or count - Mio::has tests existence but
+        /// Mio::has_more_than_zero does not - so writing what the game writes
+        /// is the only safe default. Granting at 0 is what kept the crucible
+        /// keys and the crucible reports from working.
+        /// </summary>
+        private const int DefaultGrantCount = 1;
+
+        /// <summary>
+        /// Entries whose count differs from DefaultGrantCount. A key may be a
+        /// full entry ("ATTACK_POWER:1") or a category prefix ("ATTACK_POWER")
+        /// covering every entry in it; a full entry wins over a category.
+        ///
+        /// Empty today - every category we grant wants 1. It stays as the place
+        /// to record a genuine exception when one turns up.
         ///
         /// Counts are SET rather than incremented, so writing the same entry
         /// twice is idempotent.
         /// </summary>
-        private static readonly Dictionary<string, int> GrantCounts = new(StringComparer.Ordinal)
+        private static readonly Dictionary<string, int> GrantCounts = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Extra entries to write alongside an Archipelago grant, keyed by the
+        /// item's own save entry.
+        ///
+        /// Some pickups write more than one entry, and the mod only knows about
+        /// the one the item maps to. Collecting a crucible report writes the
+        /// KEY entry - the report itself - and, in the same instant, the DIALOG
+        /// entry recording that its readout was shown. Writing both makes an
+        /// Archipelago grant indistinguishable from a pickup.
+        /// </summary>
+        private static readonly Dictionary<string, string[]> CompanionEntries = new(StringComparer.Ordinal)
         {
-            { "ATTACK_POWER",         1 },
-            { "SHIELD_FRAGMENT",      1 },
-            { "TRINKET_SLOT_UPGRADE", 1 },
-            { "CANDLE",               1 },
-            { "CARCASS",              1 },
+            { "KEY:CRUCIBLE_GLOOMWATER", new[] { "DIALOG:TXT_CRUCIBLE_DATAREPORT_GLOOMWATER" } },
+            { "KEY:CRUCIBLE_CRYSTAL",    new[] { "DIALOG:TXT_CRUCIBLE_DATAREPORT_CRYSTALLISATION" } },
         };
 
         // ---------------------------------------------------------------
@@ -215,6 +236,17 @@ namespace MioAP
         /// ever enter the item pool.
         /// </summary>
         private readonly string[] _scopeShopOffers;
+
+        /// <summary>
+        /// Flowing Steps. Its Samsk runs through update_hacker_crucible rather
+        /// than the shared update_hacker, so ScopeHacker never reaches it.
+        ///
+        /// Deliberately narrower than ScopeHacker: this handler also tests the two
+        /// crucible keys, and those are prerequisites the player must really own.
+        /// Redirecting them to their shadows would block anyone who received a key
+        /// from Archipelago without doing the challenge it came from.
+        /// </summary>
+        private static readonly string[] ScopeSpiderGoo = { "UNLOCK:SPIDER_GOO" };
 
         /// <summary>
         /// A carcass pickup grants its currency in a second loot call - Nacre
@@ -396,6 +428,7 @@ namespace MioAP
             // Item and location interception.
             On.MioGame.On_Game.loot_1.Hook += loot_1_Hook;
             On.MioGame.On_Mio.has.Hook += mio_has_Hook;
+            On.MioGame.On_Mio.has_more_than_zero.Hook += mio_has_more_than_zero_Hook;
             On.MioGame.On_Ui_loot_popup.start.Hook += loot_popup_start_Hook;
             On.MioGame.On_Mio.trinket_slots_count.Hook += trinket_slots_count_Hook;
 
@@ -500,6 +533,32 @@ namespace MioAP
             On.MioGame.On_Npc_node.update_hacker.Hook +=
                 static (orig, self, node) => { using var s = new Scope(ScopeHacker, "Npc_node_hacker"); orig(self, node); };
 
+            // Flowing Steps' Samsk. Its own handler, so ScopeHacker never
+            // reaches it.
+            On.MioGame.On_Npc_node.update_hacker_crucible.Hook +=
+                static (orig, self, node) => { using var s = new Scope(ScopeSpiderGoo, "hacker_crucible"); orig(self, node); };
+
+            // Tomo runs the crucible sequence and hands over Flowing Steps at
+            // the end of it. He has his own handlers too.
+            On.MioGame.On_Npc_node.update_tomo.Hook +=
+                static (orig, self, node) => { using var s = new Scope(ScopeSpiderGoo, "tomo"); orig(self, node); };
+
+            On.MioGame.On_Npc_node.update_tomo2.Hook +=
+                static (orig, self, node) => { using var s = new Scope(ScopeSpiderGoo, "tomo2"); orig(self, node); };
+
+            // Tomo's placement. Npc_manager::update_tomo_plotpoints decides it
+            // by asking whether the player has Flowing Steps, and moves him home
+            // once they do - which removes him from the crucible before an
+            // Archipelago player can run the sequence. That function is INLINED
+            // into update_npcs, so hooking the standalone symbol does nothing;
+            // the inlined copy also picks TOMO_HOME straight from the has()
+            // result, before it ever reads plotpoints.tomo.quest.
+            //
+            // Narrow on purpose: update_npcs also queries CODE:MEL_PLUGGED and
+            // VOICE:HALYN, and those must keep reading the real save.
+            On.MioGame.On_Game.On_Npc_manager.update_npcs.Hook +=
+                static (orig, self) => { using var s = new Scope(ScopeSpiderGoo, "update_npcs"); orig(self); };
+
             On.MioGame.On_Hub_general.update_tuner3.Hook +=
                 static (orig, self, node) => { using var s = new Scope(ScopeMap, "Hub_general_tuner3"); orig(self, node); };
 
@@ -536,10 +595,10 @@ namespace MioAP
         // ===============================================================
 
         /// <summary>
-        /// Count to write for a save entry after acquiring it, or null to leave
-        /// whatever acquire() produced. Full entry first, then category prefix.
+        /// Count to write for a save entry after acquiring it. Full entry first,
+        /// then category prefix, then DefaultGrantCount.
         /// </summary>
-        private static int? CountFor(string saveEntry)
+        private static int CountFor(string saveEntry)
         {
             if (GrantCounts.TryGetValue(saveEntry, out int exact)) return exact;
 
@@ -547,7 +606,7 @@ namespace MioAP
             if (colon > 0 && GrantCounts.TryGetValue(saveEntry[..colon], out int byCategory))
                 return byCategory;
 
-            return null;
+            return DefaultGrantCount;
         }
 
         /// <summary>
@@ -559,10 +618,21 @@ namespace MioAP
             MioGame.String s = Util.StringToMioString(saveEntry);
             Save_entry* entry = game.save.acquire(&s);
 
-            int? want = CountFor(saveEntry);
-            if (want != null && entry != null) entry->count = want.Value;
+            if (entry != null) entry->count = CountFor(saveEntry);
 
             return entry;
+        }
+
+        /// <summary>
+        /// Writes the extra entries a pickup would have written alongside this
+        /// one. See CompanionEntries.
+        /// </summary>
+        private static unsafe void GrantCompanions(ref Game game, string saveEntry)
+        {
+            if (!CompanionEntries.TryGetValue(saveEntry, out string[]? companions)) return;
+
+            foreach (string companion in companions)
+                AcquireWithCount(ref game, companion);
         }
 
         /// <summary>Acquires an entry without touching its count.</summary>
@@ -738,6 +808,7 @@ namespace MioAP
             else
             {
                 AcquireWithCount(ref game, item.SaveEntry);
+                GrantCompanions(ref game, item.SaveEntry);
                 SyncDerivedResources(ref game, item.SaveEntry);
 
                 LogMessage($"[AP] granted \"{item.Name}\" ({item.SaveEntry})");
@@ -909,6 +980,32 @@ namespace MioAP
                 }
             }
             catch (Exception ex) { LogMessage("[hooks] has failed: " + ex); }
+
+            return orig(__this, item_id);
+        }
+
+        /// <summary>
+        /// The count-based sibling of Mio::has. Same scope rules - a call site
+        /// asking "has this pickup been taken" means the same thing whichever
+        /// function it asks through.
+        /// </summary>
+        private unsafe bool mio_has_more_than_zero_Hook(
+            On.MioGame.On_Mio.orig_has_more_than_zero orig, Mio* __this, MioGame.String* item_id)
+        {
+            if (_scopeEntries == null && !_inBunkerPickupRoom) return orig(__this, item_id);
+
+            try
+            {
+                string id = Util.MioStringToString(*item_id);
+
+                string? shadow = ShadowFor(id);
+                if (shadow != null)
+                {
+                    MioGame.String s = Util.StringToMioString(shadow);
+                    return orig(__this, &s);
+                }
+            }
+            catch (Exception ex) { LogMessage("[hooks] has_more_than_zero failed: " + ex); }
 
             return orig(__this, item_id);
         }
