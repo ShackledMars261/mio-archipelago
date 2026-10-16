@@ -80,6 +80,7 @@ namespace MioAP
         private const string ExtraShieldsEntry = "RESOURCE:EXTRA_SHIELDS";
 
         private const string CarcassCategory = "CARCASS";
+        private const string DialogCategory = "DIALOG";
         private const string ShieldFragmentCategory = "SHIELD_FRAGMENT";
         private const string TrinketSlotUpgradeCategory = "TRINKET_SLOT_UPGRADE";
 
@@ -387,6 +388,14 @@ namespace MioAP
         /// </summary>
         private const int EventScanInterval = 60;
         private int _eventScanCountdown;
+
+        /// <summary>Old Cores awarded by conversation rather than a world pickup.</summary>
+        private static readonly HashSet<string> DialogOldCores = new(StringComparer.Ordinal)
+        {
+            "DIALOG:TXT_LQ_CITY_FOUNDATIONS",   // Poncia
+            "DIALOG:TXT_GA_VIN_SUDDEN_PEARL",   // Harpagon
+            "DIALOG:TXT_GA_BOU_MINDYOURSTEP",   // Ollantay
+        };
 
         public HooksManager(Action<string> loggingCBMethod, DataManager dataManager, ArchipelagoManager apManager, Action<string> showToastMethod)
         {
@@ -845,7 +854,7 @@ namespace MioAP
 
             // Old Core locations likewise use their real CARCASS entry, which is
             // what despawns the world pickup. Everything else uses a shadow.
-            string entry = vanillaItem.SaveEntry.StartsWith(CarcassCategory + ":", StringComparison.Ordinal)
+            string entry = MarksItselfConsumed(vanillaItem.SaveEntry)
                 ? vanillaItem.SaveEntry
                 : DataManager.ShadowEntry(vanillaItem.SaveEntry);
 
@@ -1057,14 +1066,16 @@ namespace MioAP
                     else
                         LogMessage($"[AP] unresolved location: '{id}' in room '{room}' - no check sent");
 
-                    // Old Core locations mark themselves consumed with their real
-                    // CARCASS entry, which is what despawns the world pickup. The
-                    // pickup also bumps FULL_PEARLS in a second loot call, which
-                    // has to go too or the player banks a core AP never sent.
-                    bool isOldCore = id.StartsWith(CarcassCategory + ":", StringComparison.Ordinal);
-                    if (isOldCore) _suppressNextLoot = FullPearlsEntry;
+                    // An Old Core pickup also bumps FULL_PEARLS in a second loot
+                    // call, which has to go too or the player banks a core AP
+                    // never sent. Three of them are conversation rewards rather
+                    // than world pickups, so the CARCASS prefix doesn't catch
+                    // them and they're listed by name.
+                    if (id.StartsWith(CarcassCategory + ":", StringComparison.Ordinal)
+                        || DialogOldCores.Contains(id))
+                        _suppressNextLoot = FullPearlsEntry;
 
-                    string consumedEntry = isOldCore ? id : DataManager.ShadowEntry(id);
+                    string consumedEntry = MarksItselfConsumed(id) ? id : DataManager.ShadowEntry(id);
 
                     return AcquireWithCount(ref game, consumedEntry);
                 }
@@ -1356,6 +1367,21 @@ namespace MioAP
                                     ArchipelagoManager.UpdateEventsBounce))
                 _pushedEvents.Add(name);
         }
+
+        /// <summary>
+        /// True when an entry is the game's own "this is done" marker, so the real
+        /// entry is written on a check rather than a shadow.
+        ///
+        /// A CARCASS entry is what despawns the world pickup. A DIALOG entry is what
+        /// stops an NPC repeating a conversation - it's read back through
+        /// game::npc::has_dialog, which is just has("DIALOG:" + id) and sits outside
+        /// the scope system entirely, so a shadow would be invisible to it. Neither
+        /// entry grants the player anything on its own, which is what makes writing
+        /// the real one safe.
+        /// </summary>
+        private static bool MarksItselfConsumed(string saveEntry) =>
+            saveEntry.StartsWith(CarcassCategory + ":", StringComparison.Ordinal) ||
+            saveEntry.StartsWith(DialogCategory + ":", StringComparison.Ordinal);
 
         // ===============================================================
         // Diagnostics
