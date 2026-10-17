@@ -92,7 +92,7 @@ namespace MioAP
         private const string DefaultPort = "38281";
 #else
         private const string DefaultHost = "archipelago.gg";
-        private const string DefaultPort = "";      // rooms get a per-room port
+        private const string DefaultPort = "38281";      // rooms get a per-room port
 #endif
         private readonly byte[] _host = NewBuf(DefaultHost, 64);
         private readonly byte[] _port = NewBuf(DefaultPort, 8);
