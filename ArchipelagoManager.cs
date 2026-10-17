@@ -6,6 +6,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
+using System.Numerics;
 
 using ItemSendMessage = Archipelago.MultiClient.Net.MessageLog.Messages.ItemSendLogMessage;
 
@@ -655,5 +656,15 @@ namespace MioAP
             }
             return fallback;
         }
+
+
+        public static readonly Vector2[] StartingLocations = 
+        [
+            new Vector2(-1230, 1421), // ST_security_fall_P1 (normal start)
+            new Vector2(-2898, 1871), // LQ_city_hall_C2
+            new Vector2(-66, 2089), // GA_vin_terrace_P3
+            new Vector2(-3851, 1780), // LQ_vin_intro
+            new Vector2(-66, 2089), // GA_root_conex_P2
+        ];
     }
 }
