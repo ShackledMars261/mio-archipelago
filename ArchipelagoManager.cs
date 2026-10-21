@@ -3,6 +3,7 @@ using Archipelago.MultiClient.Net.BounceFeatures.DeathLink;
 using Archipelago.MultiClient.Net.Converters;
 using Archipelago.MultiClient.Net.Enums;
 using Archipelago.MultiClient.Net.Packets;
+using MioGame.std;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Concurrent;
@@ -259,7 +260,9 @@ namespace MioAP
             isDeathLink = true; //GetSlotDataValue("deathlink", false);
             deathLinkService = _session.CreateDeathLinkService();
             deathLinkService.OnDeathLinkReceived += ReceiveDeathLink;
-            _session.ConnectionInfo.UpdateConnectionOptions(["DeathLink"]);
+            _session.ConnectionInfo.UpdateConnectionOptions(["DeathLink", "KnockbackLink"]);
+            isKnockbackLink = true; //GetSlotDataValue("knockbacklink", false);
+            _session.Socket.PacketReceived += ReceiveBounce;
 
             // Drop anything queued from a previous session, then re-enqueue everything.
             // Indices are stable, so the save watermark skips whatever was already applied.
@@ -653,6 +656,40 @@ namespace MioAP
         }
 
 
+        private void ReceiveBounce(ArchipelagoPacketBase packet)
+        {
+            switch (packet)
+            {
+                case BouncedPacket bouncePacket:
+                    if (bouncePacket.Tags.Count != 0)
+                    {
+                        switch (bouncePacket.Tags[0])
+                        {
+                            case "DeathLink":
+                                break;
+                            case "KnockbackLink":
+                                Dictionary<string, float> values = bouncePacket.Data["value"].ToObject<Dictionary<string, float>>();
+                                MioGame.Vec_float_3 pos = new();
+                                pos.x = values["x"];
+                                pos.y = values["y"];
+                                queuedKnockbackLink = AddVecFloat3(queuedKnockbackLink, pos);
+                                break;
+                        }
+                    }
+                    if (bouncePacket.Data.ContainsKey("bounce_type")) 
+                    {
+                        switch (bouncePacket.Data["bounce_type"].Value<string>())
+                        {
+                            case "LogMessage":
+                                LogMessage(bouncePacket.Data["text"].Value<string>());
+                                break;
+                        }
+                    }
+                    break;
+            }
+        }
+
+
         // <summary>The slot data (player options, as received from the server)</summary>
         private Dictionary<string, dynamic> _cachedSlotData = [];
 
@@ -697,12 +734,38 @@ namespace MioAP
         public bool queuedDeathLink = false;
         public long lastDeathLinkTime = 0;
         public unsafe DeathLinkService? deathLinkService;
+        public bool isKnockbackLink;
+        public MioGame.Vec_float_3 queuedKnockbackLink;
 
 
         private void ReceiveDeathLink(DeathLink deathLink)
         {
             if (Math.Abs(deathLink.Timestamp.ToUnixTimeStamp() - lastDeathLinkTime) < 2) return;
             queuedDeathLink = true;
+            LogMessage($"[AP] DeathLink received from {deathLink.Source}: {deathLink.Cause}");
+        }
+
+
+        public static MioGame.Vec_float_3 AddVecFloat3(MioGame.Vec_float_3 vec1, MioGame.Vec_float_3 vec2)
+        {
+            MioGame.Vec_float_3 result = new();
+            result.x = vec1.x + vec2.x;
+            result.y = vec1.y + vec2.y;
+            result.z = vec1.z + vec2.z;
+            return result;
+        }
+        public static MioGame.Vec_float_3 MultiplyVecFloat3(MioGame.Vec_float_3 vec, float multiplier)
+        {
+            vec.x *= multiplier; vec.y *= multiplier; vec.z *= multiplier;
+            return vec;
+        }
+        public static bool IsVecFloat3Zero(MioGame.Vec_float_3 vec)
+        {
+            return IsFloatZero(vec.x) && IsFloatZero(vec.y) && IsFloatZero(vec.z);
+        }
+        private static bool IsFloatZero(float value)
+        {
+            return Math.Abs(value) < 0.00001f;
         }
     }
 }

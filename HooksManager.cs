@@ -431,6 +431,9 @@ namespace MioAP
             if (Diagnostics) BuildSymbolTable();
 #pragma warning restore CS0162
 
+            // Add link checker, every frame
+            On.MioGame.On_Game.fixed_update.Prefix += CheckForLinks;
+
             // Per-frame pump for queued Archipelago work.
             On.MioGame.On_Game.fixed_update.Prefix += fixed_update_Prefix;
 
@@ -507,9 +510,6 @@ namespace MioAP
         /// </summary>
         private unsafe void InitScopeHooks()
         {
-            // Add deathlink checker, every frame
-            On.MioGame.On_Game.fixed_update.Prefix += CheckForDeathlink;
-
             // Global systems that walk every entity of a type each frame.
             On.MioGame.On_Game.update_loot.Hook +=
                 static (orig, self) => { using var s = new Scope(ScopeAllApItems, "update_loot"); orig(self); };
@@ -1577,29 +1577,49 @@ namespace MioAP
 
 
         private bool alreadyDead = false;
+        private Vec_float_3 zeroVector = new Vec_float_3() { Base = new _vec_storage_float_3() { x = 0.0f, y = 0.0f, z = 0.0f } };
 
-        private unsafe void CheckForDeathlink(MioGame.Game* __this)
+
+        private unsafe void CheckForLinks(Game* __this)
         {
-
-            if (!apManager.isDeathLink) return;
             ref var mio = ref __this->mio;
-            if (apManager.queuedDeathLink)
+
+            if (apManager.isDeathLink)
             {
-                mio.life.dead._value = true;
-                apManager.queuedDeathLink = false;
-            }
-            else if (mio.life.dead._value)
-            {
-                if (!alreadyDead)
+                if (apManager.queuedDeathLink)
                 {
-                    apManager.SendDeathLink();
-                    alreadyDead = true;
-                    LogMessage("sending deathlink");
+                    mio.life.health_points = 0;
+                    mio.life.shield_points = 0;
+                    Vec_float_3 pos = new();
+                    pos.x = -967; pos.y = 1430; pos.z = 0;
+                    mio.move_to(pos);
+                    apManager.queuedDeathLink = false;
+                }
+                else if (mio.life.dead._value)
+                {
+                    if (!alreadyDead)
+                    {
+                        apManager.SendDeathLink();
+                        alreadyDead = true;
+                        LogMessage("[AP] Sending DeathLink!");
+                    }
+                }
+                else
+                {
+                    alreadyDead = false;
                 }
             }
-            else
+            if (apManager.isKnockbackLink)
             {
-                alreadyDead = false;
+                if (!ArchipelagoManager.IsVecFloat3Zero(apManager.queuedKnockbackLink))
+                {
+                    //mio.move_by_slide(apManager.queuedKnockbackLink);
+                    LogMessage(apManager.queuedKnockbackLink.y.ToString());
+                    mio.velocity = ArchipelagoManager.AddVecFloat3(mio.velocity, ArchipelagoManager.MultiplyVecFloat3(apManager.queuedKnockbackLink, 2.0f));
+                    mio.move_by(new Vec_float_3() { Base = new _vec_storage_float_3() { y = 1.0f } });
+                    LogMessage(mio.velocity.y.ToString());
+                }
+                apManager.queuedKnockbackLink = zeroVector;
             }
         }
     }
