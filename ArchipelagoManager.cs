@@ -1,4 +1,6 @@
 ﻿using Archipelago.MultiClient.Net;
+using Archipelago.MultiClient.Net.BounceFeatures.DeathLink;
+using Archipelago.MultiClient.Net.Converters;
 using Archipelago.MultiClient.Net.Enums;
 using Archipelago.MultiClient.Net.Packets;
 using Newtonsoft.Json.Linq;
@@ -253,6 +255,11 @@ namespace MioAP
         private void ResyncFromServer()
         {
             if (_session == null) return;
+
+            isDeathLink = true; //GetSlotDataValue("deathlink", false);
+            deathLinkService = _session.CreateDeathLinkService();
+            deathLinkService.OnDeathLinkReceived += ReceiveDeathLink;
+            _session.ConnectionInfo.UpdateConnectionOptions(["DeathLink"]);
 
             // Drop anything queued from a previous session, then re-enqueue everything.
             // Indices are stable, so the save watermark skips whatever was already applied.
@@ -581,7 +588,6 @@ namespace MioAP
         private void SendBounce(string bounceType)
         {
             if (!IsConnected || _session == null) return;
-
             try
             {
                 _session.Socket.SendPacket(new BouncePacket
@@ -591,6 +597,28 @@ namespace MioAP
                 });
             }
             catch (Exception ex) { LogMessage("[AP] bounce failed: " + ex); }
+        }
+
+
+        public void SendDeathLink(string cause = "Died :(")
+        {
+            if (!IsConnected || _session == null) return;
+
+            try
+            {
+                lastDeathLinkTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                _session.Socket.SendPacket(new BouncePacket
+                {
+                    Tags = new List<string> { "DeathLink" },
+                    Data = new Dictionary<string, JToken>
+                    {
+                        ["source"] = _session.Players.GetPlayerName(-1),
+                        ["cause"] = cause,
+                        ["time"] = lastDeathLinkTime
+                    }
+                });
+            }
+            catch (Exception ex) { LogMessage("[AP] deathlink bounce failed: " + ex); }
         }
 
 
@@ -650,7 +678,7 @@ namespace MioAP
         // <summary>
         // Gets a slot data value from its key, returning the fallback if it cannot access it.
         // </summary>
-        private dynamic GetSlotDataValue(string key, dynamic fallback)
+        public dynamic GetSlotDataValue(string key, dynamic fallback)
         {
             if (!IsConnected || _session == null) return fallback;
 
@@ -662,6 +690,19 @@ namespace MioAP
                 LogMessage($"[AP] could not access slot data (for key {key}): " + ex); 
             }
             return fallback;
+        }
+
+
+        public bool isDeathLink = false;
+        public bool queuedDeathLink = false;
+        public long lastDeathLinkTime = 0;
+        public unsafe DeathLinkService? deathLinkService;
+
+
+        private void ReceiveDeathLink(DeathLink deathLink)
+        {
+            if (Math.Abs(deathLink.Timestamp.ToUnixTimeStamp() - lastDeathLinkTime) < 2) return;
+            queuedDeathLink = true;
         }
     }
 }

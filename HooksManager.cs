@@ -507,6 +507,9 @@ namespace MioAP
         /// </summary>
         private unsafe void InitScopeHooks()
         {
+            // Add deathlink checker, every frame
+            On.MioGame.On_Game.fixed_update.Prefix += CheckForDeathlink;
+
             // Global systems that walk every entity of a type each frame.
             On.MioGame.On_Game.update_loot.Hook +=
                 static (orig, self) => { using var s = new Scope(ScopeAllApItems, "update_loot"); orig(self); };
@@ -1570,6 +1573,34 @@ namespace MioAP
 
             int plus = frame.IndexOf('+');
             return plus > 0 ? frame[..plus] : frame;
+        }
+
+
+        private bool alreadyDead = false;
+
+        private unsafe void CheckForDeathlink(MioGame.Game* __this)
+        {
+
+            if (!apManager.isDeathLink) return;
+            ref var mio = ref __this->mio;
+            if (apManager.queuedDeathLink)
+            {
+                mio.life.dead._value = true;
+                apManager.queuedDeathLink = false;
+            }
+            else if (mio.life.dead._value)
+            {
+                if (!alreadyDead)
+                {
+                    apManager.SendDeathLink();
+                    alreadyDead = true;
+                    LogMessage("sending deathlink");
+                }
+            }
+            else
+            {
+                alreadyDead = false;
+            }
         }
     }
 }
