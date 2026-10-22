@@ -1584,6 +1584,8 @@ namespace MioAP
         {
             ref var mio = ref __this->mio;
 
+            if (mio.cutscene.active) return;
+
             if (apManager.isDeathLink)
             {
                 if (apManager.queuedDeathLink)
@@ -1613,13 +1615,13 @@ namespace MioAP
             {
                 if (!ArchipelagoManager.IsVecFloat3Zero(apManager.queuedKnockbackLink))
                 {
-                    //mio.move_by_slide(apManager.queuedKnockbackLink);
                     LogMessage(apManager.queuedKnockbackLink.y.ToString());
                     mio.velocity = ArchipelagoManager.AddVecFloat3(mio.velocity, ArchipelagoManager.MultiplyVecFloat3(apManager.queuedKnockbackLink, 2.0f));
                     mio.move_by(new Vec_float_3() { Base = new _vec_storage_float_3() { y = 1.0f } });
                     LogMessage(mio.velocity.y.ToString());
+                    apManager.queuedKnockbackLink = zeroVector;
                 }
-                apManager.queuedKnockbackLink = zeroVector;
+                // Send knockbacklink here
             }
         }
     }
