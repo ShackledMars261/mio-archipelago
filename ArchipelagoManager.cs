@@ -755,7 +755,7 @@ namespace MioAP
         // </summary>
         public dynamic GetSlotDataValue(string key, dynamic fallback)
         {
-            if (!IsConnected || _session == null) return fallback;
+            if (!IsConnected || _session == null || !_cachedSlotData.ContainsKey(key)) return fallback;
 
             try
             {
