@@ -259,6 +259,8 @@ namespace MioAP
 
             isDeathLink = true; //GetSlotDataValue("death_link", false);
             UpdateTag("DeathLink", isDeathLink);
+            deathLinkAmnesty = GetSlotDataValue("death_link_amnesty", 1);
+            deathLinkGrace = GetSlotDataValue("death_link_grace", 1);
             deathLinkService = _session.CreateDeathLinkService();
             deathLinkService.OnDeathLinkReceived += ReceiveDeathLink;
 
@@ -613,6 +615,11 @@ namespace MioAP
         {
             if (!IsConnected || _session == null || !isDeathLink) return;
 
+            deathLinkAmnestyPoints++;
+            LogMessage("amnesty: " + deathLinkAmnestyPoints.ToString());
+            if (deathLinkAmnestyPoints < deathLinkAmnesty) return;
+            deathLinkAmnestyPoints = 0;
+
             try
             {
                 lastDeathLinkTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
@@ -621,7 +628,7 @@ namespace MioAP
                     Tags = new List<string> { "DeathLink" },
                     Data = new Dictionary<string, JToken>
                     {
-                        ["source"] = _session.Players.GetPlayerName(-1),
+                        ["source"] = _session.Players.ActivePlayer.Name,
                         ["cause"] = cause,
                         ["time"] = lastDeathLinkTime
                     }
@@ -645,7 +652,7 @@ namespace MioAP
                     {
                         ["time"] = lastDamageLinkTime,
                         ["uuid"] = uuid.ToString(),
-                        ["source"] = _session.Players.GetPlayerName(-1),
+                        ["source"] = _session.Players.ActivePlayer.Name,
                         ["damage_points"] = DamageLinkThreshold * shieldsLost
                     }
                 });
@@ -789,6 +796,10 @@ namespace MioAP
         public bool queuedDeathLink = false;
         public long lastDeathLinkTime = 0;
         public unsafe DeathLinkService? deathLinkService;
+        public int deathLinkAmnesty = 1;
+        public int deathLinkGrace = 1;
+        public int deathLinkAmnestyPoints = 1;
+        public int deathLinkGracePoints = 1;
 
         public bool isKnockbackLink;
         public MioGame.Vec_float_3 queuedKnockbackLink;
@@ -803,7 +814,12 @@ namespace MioAP
         {
             if (!isDeathLink) return;
             if (Math.Abs(deathLink.Timestamp.ToUnixTimeStamp() - lastDeathLinkTime) < 2) return;
-            queuedDeathLink = true;
+            deathLinkGracePoints++;
+            if (deathLinkGracePoints >= deathLinkGrace)
+            {
+                queuedDeathLink = true;
+                deathLinkGracePoints = 0;
+            }
             LogMessage($"[AP] DeathLink received from {deathLink.Source}: {deathLink.Cause}");
         }
 
