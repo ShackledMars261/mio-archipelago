@@ -434,7 +434,7 @@ namespace MioAP
 
             // Add link checker, every frame
             On.MioGame.On_Game.fixed_update.Prefix += CheckForLinks;
-            On.MioGame.On_Bumper_node.activate.Prefix += BumperKnockbackLink;
+            //On.MioGame.On_Bumper_node.activate.Prefix += BumperKnockbackLink;
 
             // Per-frame pump for queued Archipelago work.
             On.MioGame.On_Game.fixed_update.Prefix += fixed_update_Prefix;
