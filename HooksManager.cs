@@ -2,6 +2,7 @@
 using MioModdingApi;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace MioAP
@@ -433,6 +434,7 @@ namespace MioAP
 
             // Add link checker, every frame
             On.MioGame.On_Game.fixed_update.Prefix += CheckForLinks;
+            On.MioGame.On_Bumper_node.activate.Prefix += BumperKnockbackLink;
 
             // Per-frame pump for queued Archipelago work.
             On.MioGame.On_Game.fixed_update.Prefix += fixed_update_Prefix;
@@ -1585,11 +1587,14 @@ namespace MioAP
             ref var mio = ref __this->mio;
 
             if (mio.cutscene.active) return;
+            //if (mio.hit_react.active._value) LogMessage("Wow " + mio.hit_react.dir.x.ToString());
+            //MioGame.Bumper_node
 
             if (apManager.isDeathLink)
             {
                 if (apManager.queuedDeathLink)
                 {
+                    //MioGame.GlobalFunctions.game.mio.mio_set_dead((Mio*)Unsafe.AsPointer(ref mio), null);
                     mio.life.health_points = 0;
                     mio.life.shield_points = 0;
                     Vec_float_3 pos = new();
@@ -1622,6 +1627,16 @@ namespace MioAP
                     apManager.queuedKnockbackLink = zeroVector;
                 }
                 // Send knockbacklink here
+            }
+        }
+
+
+        private unsafe void BumperKnockbackLink(Node2* n, Bumper_node* bn)
+        {
+            ref Bumper_node bumper = ref Unsafe.AsRef<Bumper_node>(bn);
+            if (apManager.isKnockbackLink)
+            {
+                LogMessage($"Bumper activated with strength {bumper.strength} and range {bumper.range}");
             }
         }
     }
