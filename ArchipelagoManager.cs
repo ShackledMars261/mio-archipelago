@@ -257,17 +257,17 @@ namespace MioAP
         {
             if (_session == null) return;
 
-            isDeathLink = true; //GetSlotDataValue("death_link", false);
+            isDeathLink = GetSlotDataValue("death_link", false);
             UpdateTag("DeathLink", isDeathLink);
             deathLinkAmnesty = GetSlotDataValue("death_link_amnesty", 1);
             deathLinkGrace = GetSlotDataValue("death_link_grace", 1);
             deathLinkService = _session.CreateDeathLinkService();
             deathLinkService.OnDeathLinkReceived += ReceiveDeathLink;
 
-            isKnockbackLink = true; //GetSlotDataValue("knockback_link", false);
+            isKnockbackLink = GetSlotDataValue("knockback_link", false);
             UpdateTag("KnockbackLink", isKnockbackLink);
 
-            isDamageLink = true; //GetSlotDataValue("damage_link", false);
+            isDamageLink = GetSlotDataValue("damage_link", false);
             UpdateTag("SharedDamage", isDamageLink);
 
             _session.Socket.PacketReceived += ReceiveBounce;
@@ -616,7 +616,6 @@ namespace MioAP
             if (!IsConnected || _session == null || !isDeathLink) return;
 
             deathLinkAmnestyPoints++;
-            LogMessage("amnesty: " + deathLinkAmnestyPoints.ToString());
             if (deathLinkAmnestyPoints < deathLinkAmnesty) return;
             deathLinkAmnestyPoints = 0;
 
@@ -692,6 +691,9 @@ namespace MioAP
         }
 
 
+        // <summary>
+        // Processes a bounce packet from archipelago.
+        // </summary>
         private void ReceiveBounce(ArchipelagoPacketBase packet)
         {
             switch (packet)
@@ -776,6 +778,9 @@ namespace MioAP
 
         public List<string> connectionTags = [];
 
+        // <summary>
+        // Adds the tag if on, otherwise removes it.
+        // </summary>
         public void UpdateTag(string tag, bool on)
         {
             if (connectionTags.Count > 0) LogMessage(connectionTags[0]);

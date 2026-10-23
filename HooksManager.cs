@@ -1588,8 +1588,6 @@ namespace MioAP
             ref var mio = ref __this->mio;
 
             if (mio.cutscene.active) return;
-            //if (mio.hit_react.active._value) LogMessage("Wow " + mio.hit_react.dir.x.ToString());
-            //MioGame.Bumper_node
 
             if (apManager.isDeathLink)
             {
