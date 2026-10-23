@@ -1579,6 +1579,7 @@ namespace MioAP
 
 
         private bool alreadyDead = false;
+        private int previousShields = -1;
         private Vec_float_3 zeroVector = new Vec_float_3() { Base = new _vec_storage_float_3() { x = 0.0f, y = 0.0f, z = 0.0f } };
 
 
@@ -1627,6 +1628,22 @@ namespace MioAP
                     apManager.queuedKnockbackLink = zeroVector;
                 }
                 // Send knockbacklink here
+            }
+            if (apManager.isDamageLink)
+            {
+                if (apManager.damageLinkPoints >= ArchipelagoManager.DamageLinkThreshold && mio.life.shield_points > 0)
+                {
+                    int shieldsToLose = apManager.damageLinkPoints / ArchipelagoManager.DamageLinkThreshold;
+                    shieldsToLose = Math.Min(mio.life.shield_points, shieldsToLose);
+                    mio.life.shield_points -= shieldsToLose;
+                    apManager.damageLinkPoints -= ArchipelagoManager.DamageLinkThreshold * shieldsToLose;
+                }
+                else if (previousShields > mio.life.shield_points && previousShields != -1)
+                {
+                    apManager.SendDamageLink(previousShields - mio.life.shield_points);
+                    LogMessage("[AP] Sending DamageLink!");
+                }
+                previousShields = mio.life.shield_points;
             }
         }
 

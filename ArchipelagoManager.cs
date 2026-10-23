@@ -257,11 +257,17 @@ namespace MioAP
         {
             if (_session == null) return;
 
-            isDeathLink = true; //GetSlotDataValue("deathlink", false);
+            isDeathLink = true; //GetSlotDataValue("death_link", false);
+            UpdateTag("DeathLink", isDeathLink);
             deathLinkService = _session.CreateDeathLinkService();
             deathLinkService.OnDeathLinkReceived += ReceiveDeathLink;
-            _session.ConnectionInfo.UpdateConnectionOptions(["DeathLink", "KnockbackLink"]);
-            isKnockbackLink = true; //GetSlotDataValue("knockbacklink", false);
+
+            isKnockbackLink = true; //GetSlotDataValue("knockback_link", false);
+            UpdateTag("KnockbackLink", isKnockbackLink);
+
+            isDamageLink = true; //GetSlotDataValue("damage_link", false);
+            UpdateTag("SharedDamage", isDamageLink);
+
             _session.Socket.PacketReceived += ReceiveBounce;
 
             // Drop anything queued from a previous session, then re-enqueue everything.
@@ -605,7 +611,7 @@ namespace MioAP
 
         public void SendDeathLink(string cause = "Died :(")
         {
-            if (!IsConnected || _session == null) return;
+            if (!IsConnected || _session == null || !isDeathLink) return;
 
             try
             {
@@ -622,6 +628,29 @@ namespace MioAP
                 });
             }
             catch (Exception ex) { LogMessage("[AP] deathlink bounce failed: " + ex); }
+        }
+
+
+        public void SendDamageLink(int shieldsLost)
+        {
+            if (!IsConnected || _session == null || !isDamageLink) return;
+
+            try
+            {
+                lastDamageLinkTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                _session.Socket.SendPacket(new BouncePacket
+                {
+                    Tags = new List<string> { "SharedDamage" },
+                    Data = new Dictionary<string, JToken>
+                    {
+                        ["time"] = lastDamageLinkTime,
+                        ["uuid"] = uuid.ToString(),
+                        ["source"] = _session.Players.GetPlayerName(-1),
+                        ["damage_points"] = DamageLinkThreshold * shieldsLost
+                    }
+                });
+            }
+            catch (Exception ex) { LogMessage("[AP] damagelink bounce failed: " + ex); }
         }
 
 
@@ -668,11 +697,20 @@ namespace MioAP
                             case "DeathLink":
                                 break;
                             case "KnockbackLink":
+                                if (!isKnockbackLink) break;
+
                                 Dictionary<string, float> values = bouncePacket.Data["value"].ToObject<Dictionary<string, float>>();
                                 MioGame.Vec_float_3 pos = new();
                                 pos.x = values["x"];
                                 pos.y = values["y"];
                                 queuedKnockbackLink = AddVecFloat3(queuedKnockbackLink, pos);
+                                break;
+                            case "SharedDamage":
+                                if (!isDamageLink) break;
+                                if (Math.Abs(bouncePacket.Data["time"].ToObject<int>() - lastDamageLinkTime) < 2) break;
+
+                                int newPoints = bouncePacket.Data["damage_points"].ToObject<int>();
+                                damageLinkPoints += newPoints;
                                 break;
                         }
                     }
@@ -729,17 +767,41 @@ namespace MioAP
             return fallback;
         }
 
+        public List<string> connectionTags = [];
+
+        public void UpdateTag(string tag, bool on)
+        {
+            if (connectionTags.Count > 0) LogMessage(connectionTags[0]);
+            
+            if (on) connectionTags.Add(tag);
+            else connectionTags.Remove(tag);
+            try
+            {
+                _session.ConnectionInfo.UpdateConnectionOptions([.. connectionTags]);
+            }
+            catch (Exception ex) { LogMessage("[AP] could not set tags: " + ex); }
+        }
+
+
+        public Guid uuid = Guid.NewGuid();
 
         public bool isDeathLink = false;
         public bool queuedDeathLink = false;
         public long lastDeathLinkTime = 0;
         public unsafe DeathLinkService? deathLinkService;
+
         public bool isKnockbackLink;
         public MioGame.Vec_float_3 queuedKnockbackLink;
+
+        public bool isDamageLink;
+        public int damageLinkPoints = 0;
+        public const int DamageLinkThreshold = 100;
+        public long lastDamageLinkTime = 0;
 
 
         private void ReceiveDeathLink(DeathLink deathLink)
         {
+            if (!isDeathLink) return;
             if (Math.Abs(deathLink.Timestamp.ToUnixTimeStamp() - lastDeathLinkTime) < 2) return;
             queuedDeathLink = true;
             LogMessage($"[AP] DeathLink received from {deathLink.Source}: {deathLink.Cause}");
