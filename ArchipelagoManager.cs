@@ -215,6 +215,8 @@ namespace MioAP
                 LogMessage($"Connected to {hostname}:{port} as \"{username}\". (Slot #{success.Slot})");
                 Toast($"Connected to Archipelago as {username}");
 
+                _ = CacheSlotData();
+
                 ResyncFromServer();
             }
             catch (Exception ex)
@@ -623,6 +625,43 @@ namespace MioAP
         }
 
 
+        // <summary>The slot data (player options, as received from the server)</summary>
+        private Dictionary<string, dynamic> _cachedSlotData = [];
 
+
+        // <summary>
+        // Requests the player's slot data from the server, setting the cache when received.
+        // </summary>
+        private async Task CacheSlotData()
+        {
+            if (!IsConnected || _session == null) return;
+
+            try
+            {
+                _cachedSlotData = await _session.DataStorage.GetSlotDataAsync(_session.ConnectionInfo.Slot);
+            }
+            catch (Exception ex)
+            {
+                LogMessage("[AP] could not cache slot data: " + ex);
+            }
+        }
+
+
+        // <summary>
+        // Gets a slot data value from its key, returning the fallback if it cannot access it.
+        // </summary>
+        private dynamic GetSlotDataValue(string key, dynamic fallback)
+        {
+            if (!IsConnected || _session == null) return fallback;
+
+            try
+            {
+                return _cachedSlotData[key];
+            }
+            catch (Exception ex) { 
+                LogMessage($"[AP] could not access slot data (for key {key}): " + ex); 
+            }
+            return fallback;
+        }
     }
 }
