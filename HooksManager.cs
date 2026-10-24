@@ -1581,14 +1581,52 @@ namespace MioAP
         private bool alreadyDead = false;
         private int previousShields = -1;
         private Vec_float_3 zeroVector = new Vec_float_3() { Base = new _vec_storage_float_3() { x = 0.0f, y = 0.0f, z = 0.0f } };
+        public static bool queuedRespawn;
+        private int staggerFrames = 3;
+        private bool satAtCheckpoint = false;
 
 
         private unsafe void ProcessOtherArchipelago(Game* __this)
         {
             ref var mio = ref __this->mio;
+            ref var save = ref __this->save;
 
             if (mio.cutscene.active) return;
-            if (mio.checkpoint.state._value != Mio.Checkpoint.State.None) return;
+            
+            if (mio.checkpoint.state._value != Mio.Checkpoint.State.None)
+            {
+                satAtCheckpoint = true;
+                return;
+            }
+            if (!satAtCheckpoint)
+            {
+                if (Util.MioStringToString(save.checkpoint_id) != "cp_FOCUS_dispatch_zone")
+                {
+                    satAtCheckpoint = true;
+                }
+            }
+
+            if (!satAtCheckpoint)
+            {
+                if (mio.life.dead._value)
+                {
+                    queuedRespawn = true;
+                }
+                else if (queuedRespawn)
+                {
+                    if (staggerFrames > 0)
+                    {
+                        staggerFrames--;
+                    }
+                    else
+                    {
+                        queuedRespawn = false;
+                        staggerFrames = 3;
+                        mio.move_to(apManager.startingPositon);
+                        LogMessage(mio.checkpoint.state._value.ToString());
+                    }
+                }
+            }
 
             if (apManager.isDeathLink)
             {
