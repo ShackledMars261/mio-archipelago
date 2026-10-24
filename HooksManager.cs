@@ -432,8 +432,8 @@ namespace MioAP
             if (Diagnostics) BuildSymbolTable();
 #pragma warning restore CS0162
 
-            // Add link checker, every frame
-            On.MioGame.On_Game.fixed_update.Prefix += CheckForLinks;
+            // Add processer, every frame
+            On.MioGame.On_Game.fixed_update.Prefix += ProcessOtherArchipelago;
             //On.MioGame.On_Bumper_node.activate.Prefix += BumperKnockbackLink;
 
             // Per-frame pump for queued Archipelago work.
@@ -1583,11 +1583,12 @@ namespace MioAP
         private Vec_float_3 zeroVector = new Vec_float_3() { Base = new _vec_storage_float_3() { x = 0.0f, y = 0.0f, z = 0.0f } };
 
 
-        private unsafe void CheckForLinks(Game* __this)
+        private unsafe void ProcessOtherArchipelago(Game* __this)
         {
             ref var mio = ref __this->mio;
 
             if (mio.cutscene.active) return;
+            if (mio.checkpoint.state._value != Mio.Checkpoint.State.None) return;
 
             if (apManager.isDeathLink)
             {
