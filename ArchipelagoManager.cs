@@ -255,6 +255,8 @@ namespace MioAP
         {
             if (_session == null) return;
 
+            startingPositon = GetStartingPosition(GetSlotDataValue("starting_room", 0));
+
             // Drop anything queued from a previous session, then re-enqueue everything.
             // Indices are stable, so the save watermark skips whatever was already applied.
             while (_pendingItems.TryDequeue(out _)) { }
@@ -666,6 +668,8 @@ namespace MioAP
         }
 
 
+        public MioGame.Vec_float_3 startingPositon;
+
         public static readonly Vector2[] StartingLocations = 
         [
             new Vector2(-1230, 1421), // ST_security_fall_P1 (normal start)
@@ -674,5 +678,15 @@ namespace MioAP
             new Vector2(-3851, 1780), // LQ_vin_intro
             new Vector2(-66, 2089), // GA_root_conex_P2
         ];
+
+        public static MioGame.Vec_float_3 GetStartingPosition(int index)
+        {
+            MioGame.Vec_float_3 result = new();
+            Vector2 location = StartingLocations[index];
+            result.x = location.X;
+            result.y = location.Y;
+            result.z = 0;
+            return result;
+        }
     }
 }
