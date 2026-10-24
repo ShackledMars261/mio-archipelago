@@ -258,7 +258,7 @@ namespace MioAP
         {
             if (_session == null) return;
 
-            startingPositon = GetStartingPosition(GetSlotDataValue("starting_room", 1));
+            startingPositon = GetStartingPosition(GetSlotDataValue("starting_room", 0));
 
             HooksManager.queuedRespawn = true;
             isDeathLink = GetSlotDataValue("death_link", false);
