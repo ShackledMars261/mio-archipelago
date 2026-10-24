@@ -626,8 +626,13 @@ namespace MioAP
         }
 
 
+        // <summary>The slot data (player options, as received from the server)</summary>
         private Dictionary<string, dynamic> _cachedSlotData = [];
 
+
+        // <summary>
+        // Requests the player's slot data from the server, setting the cache when received.
+        // </summary>
         private async Task CacheSlotData()
         {
             if (!IsConnected || _session == null) return;
@@ -643,6 +648,9 @@ namespace MioAP
         }
 
 
+        // <summary>
+        // Gets a slot data value from its key, returning the fallback if it cannot access it.
+        // </summary>
         private dynamic GetSlotDataValue(string key, dynamic fallback)
         {
             if (!IsConnected || _session == null) return fallback;
