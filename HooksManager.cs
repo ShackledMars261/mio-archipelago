@@ -2,6 +2,7 @@
 using MioModdingApi;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace MioAP
@@ -431,6 +432,8 @@ namespace MioAP
             if (Diagnostics) BuildSymbolTable();
 #pragma warning restore CS0162
 
+            //On.MioGame.On_Bumper_node.activate.Prefix += BumperKnockbackLink;
+
             // Per-frame pump for queued Archipelago work.
             On.MioGame.On_Game.fixed_update.Prefix += fixed_update_Prefix;
 
@@ -699,6 +702,8 @@ namespace MioAP
 
         private unsafe void fixed_update_Prefix(Game* __this)
         {
+            ProcessOtherArchipelago(__this);
+
             try
             {
                 // Ahead of the drain, which bails out at the menu - this has to
@@ -1570,6 +1575,123 @@ namespace MioAP
 
             int plus = frame.IndexOf('+');
             return plus > 0 ? frame[..plus] : frame;
+        }
+
+
+        private bool alreadyDead = false;
+        private int previousShields = -1;
+        private Vec_float_3 zeroVector = new Vec_float_3() { Base = new _vec_storage_float_3() { x = 0.0f, y = 0.0f, z = 0.0f } };
+        public static bool queuedRespawn;
+        private int staggerFrames = 3;
+        private bool satAtCheckpoint = false;
+
+
+        private unsafe void ProcessOtherArchipelago(Game* __this)
+        {
+            ref var mio = ref __this->mio;
+            ref var save = ref __this->save;
+
+            if (mio.cutscene.active) return;
+            
+            if (mio.checkpoint.state._value != Mio.Checkpoint.State.None)
+            {
+                satAtCheckpoint = true;
+                return;
+            }
+            if (!satAtCheckpoint)
+            {
+                if (Util.MioStringToString(save.checkpoint_id) != "cp_FOCUS_dispatch_zone")
+                {
+                    satAtCheckpoint = true;
+                }
+            }
+
+            if (!satAtCheckpoint)
+            {
+                if (mio.life.dead._value)
+                {
+                    queuedRespawn = true;
+                }
+                else if (queuedRespawn)
+                {
+                    if (staggerFrames > 0)
+                    {
+                        staggerFrames--;
+                    }
+                    else
+                    {
+                        queuedRespawn = false;
+                        staggerFrames = 3;
+                        mio.move_to(apManager.startingPositon);
+                        LogMessage(mio.checkpoint.state._value.ToString());
+                    }
+                }
+            }
+
+            if (apManager.isDeathLink)
+            {
+                if (apManager.queuedDeathLink)
+                {
+                    //MioGame.GlobalFunctions.game.mio.mio_set_dead((Mio*)Unsafe.AsPointer(ref mio), null);
+                    mio.life.health_points = 0;
+                    mio.life.shield_points = 0;
+                    Vec_float_3 pos = new();
+                    pos.x = -967; pos.y = 1430; pos.z = 0;
+                    mio.move_to(pos);
+                    apManager.queuedDeathLink = false;
+                }
+                else if (mio.life.dead._value)
+                {
+                    if (!alreadyDead)
+                    {
+                        apManager.SendDeathLink();
+                        alreadyDead = true;
+                        LogMessage("[AP] Sending DeathLink!");
+                    }
+                }
+                else
+                {
+                    alreadyDead = false;
+                }
+            }
+            if (apManager.isKnockbackLink)
+            {
+                if (!ArchipelagoManager.IsVecFloat3Zero(apManager.queuedKnockbackLink))
+                {
+                    LogMessage(apManager.queuedKnockbackLink.y.ToString());
+                    mio.velocity = ArchipelagoManager.AddVecFloat3(mio.velocity, ArchipelagoManager.MultiplyVecFloat3(apManager.queuedKnockbackLink, 2.0f));
+                    mio.move_by(new Vec_float_3() { Base = new _vec_storage_float_3() { y = 1.0f } });
+                    LogMessage(mio.velocity.y.ToString());
+                    apManager.queuedKnockbackLink = zeroVector;
+                }
+                // Send knockbacklink here
+            }
+            if (apManager.isDamageLink)
+            {
+                if (apManager.damageLinkPoints >= ArchipelagoManager.DamageLinkThreshold && mio.life.shield_points > 0)
+                {
+                    int shieldsToLose = apManager.damageLinkPoints / ArchipelagoManager.DamageLinkThreshold;
+                    shieldsToLose = Math.Min(mio.life.shield_points, shieldsToLose);
+                    mio.life.shield_points -= shieldsToLose;
+                    apManager.damageLinkPoints -= ArchipelagoManager.DamageLinkThreshold * shieldsToLose;
+                }
+                else if (previousShields > mio.life.shield_points && previousShields != -1)
+                {
+                    apManager.SendDamageLink(previousShields - mio.life.shield_points);
+                    LogMessage("[AP] Sending DamageLink!");
+                }
+                previousShields = mio.life.shield_points;
+            }
+        }
+
+
+        private unsafe void BumperKnockbackLink(Node2* n, Bumper_node* bn)
+        {
+            ref Bumper_node bumper = ref Unsafe.AsRef<Bumper_node>(bn);
+            if (apManager.isKnockbackLink)
+            {
+                LogMessage($"Bumper activated with strength {bumper.strength} and range {bumper.range}");
+            }
         }
     }
 }
