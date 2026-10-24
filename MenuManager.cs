@@ -27,7 +27,7 @@ namespace MioAP
 
         private void SetupMenu()
         {
-            try { menuPage = ModMenu.RegisterMod("MIO AP", "Mod for the Archipelago Randomizer"); }
+            try { menuPage = ModMenu.RegisterMod("MIO AP", "Mio Archipelago"); }
             catch (Exception ex) { LogMessage("[AP] Could not register mod menu: " + ex); }
 
             if (menuPage == null) return;
