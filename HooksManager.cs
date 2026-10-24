@@ -432,8 +432,6 @@ namespace MioAP
             if (Diagnostics) BuildSymbolTable();
 #pragma warning restore CS0162
 
-            // Add processer, every frame
-            On.MioGame.On_Game.fixed_update.Prefix += ProcessOtherArchipelago;
             //On.MioGame.On_Bumper_node.activate.Prefix += BumperKnockbackLink;
 
             // Per-frame pump for queued Archipelago work.
@@ -704,6 +702,8 @@ namespace MioAP
 
         private unsafe void fixed_update_Prefix(Game* __this)
         {
+            ProcessOtherArchipelago(__this);
+
             try
             {
                 // Ahead of the drain, which bails out at the menu - this has to
