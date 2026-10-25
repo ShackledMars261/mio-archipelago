@@ -3,12 +3,9 @@ using Archipelago.MultiClient.Net.BounceFeatures.DeathLink;
 using Archipelago.MultiClient.Net.Converters;
 using Archipelago.MultiClient.Net.Enums;
 using Archipelago.MultiClient.Net.Packets;
-using MioGame.std;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Threading;
 using System.Numerics;
 
 using ItemSendMessage = Archipelago.MultiClient.Net.MessageLog.Messages.ItemSendLogMessage;
@@ -300,6 +297,25 @@ namespace MioAP
             UpdateTag("SharedDamage", isDamageLink);
 
             startingPosition = GetStartingPosition((int)GetSlotDataValue("starting_room", 0));
+        }
+
+        private void UseSlotData()
+        {
+            startingPositon = GetStartingPosition((int)GetSlotDataValue("starting_room", 0));
+
+            HooksManager.queuedRespawn = true;
+            isDeathLink = GetSlotDataValue("death_link", 0) == 1;
+            UpdateTag("DeathLink", isDeathLink);
+            deathLinkAmnesty = (int)GetSlotDataValue("death_link_amnesty", 1);
+            deathLinkGrace = (int)GetSlotDataValue("death_link_grace", 1);
+            deathLinkService = _session.CreateDeathLinkService();
+            deathLinkService.OnDeathLinkReceived += ReceiveDeathLink;
+
+            isKnockbackLink = GetSlotDataValue("knockback_link", 0) == 1;
+            UpdateTag("KnockbackLink", isKnockbackLink);
+
+            isDamageLink = GetSlotDataValue("damage_link", 0) == 1;
+            UpdateTag("SharedDamage", isDamageLink);
         }
 
         /// <summary>
@@ -793,7 +809,8 @@ namespace MioAP
         }
 
 
-        public MioGame.Vec_float_3 startingPosition;
+        public MioGame.Vec_float_3 startingPositon;
+        public bool queuedWarp = false;
 
         public static readonly Vector2[] StartingLocations =
         [

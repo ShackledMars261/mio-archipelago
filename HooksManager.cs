@@ -1643,12 +1643,37 @@ namespace MioAP
                 else
                 {
                     finishedIntro = true;
+                }
+            }
+            
+
+            if (mio.checkpoint.state._value != Mio.Checkpoint.State.None)
+            {
+                satAtCheckpoint = true;
+                return;
+            }
+            if (!satAtCheckpoint)
+            {
+                bool value = InStartingCutscene(ref mio);
+                if (value)
+                {
+                    return;
+                }
+                else
+                {
+                    finishedIntro = true;
                     MioGame.String introEntry = Util.StringToMioString("CODE:HACKER_REBORN");
                     save.acquire(&introEntry);
                 }
             }
 
-            if (!satAtCheckpoint)
+            if (apManager.queuedWarp)
+            {
+                save.halyn_align.configuration_discrete = 2;
+                mio.move_to(apManager.startingPositon);
+                apManager.queuedWarp = false;
+            }
+            else if (!satAtCheckpoint)
             {
                 if (mio.life.dead._value)
                 {
@@ -1664,8 +1689,7 @@ namespace MioAP
                     {
                         queuedRespawn = false;
                         staggerFrames = 3;
-                        mio.move_to(apManager.startingPosition);
-                        LogMessage(mio.checkpoint.state._value.ToString());
+                        mio.move_to(apManager.startingPositon);
                     }
                 }
             }
@@ -1724,6 +1748,12 @@ namespace MioAP
                 }
                 previousShields = mio.life.shield_points;
             }
+        }
+
+        private static unsafe bool InStartingCutscene(ref Mio mio)
+        {
+            ref var node = ref Unsafe.AsRef<Node2>(mio.node);
+            return node._transform.translation.y > 3000.0;
         }
 
 
