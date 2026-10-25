@@ -1645,7 +1645,7 @@ namespace MioAP
                     finishedIntro = true;
                 }
             }
-            
+
 
             if (mio.checkpoint.state._value != Mio.Checkpoint.State.None)
             {
@@ -1670,7 +1670,7 @@ namespace MioAP
             if (apManager.queuedWarp)
             {
                 save.halyn_align.configuration_discrete = 2;
-                mio.move_to(apManager.startingPositon);
+                mio.move_to(apManager.startingPosition);
                 apManager.queuedWarp = false;
             }
             else if (!satAtCheckpoint)
@@ -1689,7 +1689,7 @@ namespace MioAP
                     {
                         queuedRespawn = false;
                         staggerFrames = 3;
-                        mio.move_to(apManager.startingPositon);
+                        mio.move_to(apManager.startingPosition);
                     }
                 }
             }
@@ -1754,17 +1754,6 @@ namespace MioAP
         {
             ref var node = ref Unsafe.AsRef<Node2>(mio.node);
             return node._transform.translation.y > 3000.0;
-        }
-
-
-        private static unsafe bool InStartingCutscene(ref Mio mio)
-        {
-            ref var node = ref Unsafe.AsRef<Node2>(mio.node);
-            if (node._transform.translation.y > 4000.0 || mio.action.intro_drama.state._value == Mio.Action.Intro_drama_.State.Falling || mio.action.intro_drama.landing._value)
-            {
-                return true;
-            }
-            return false;
         }
 
         private unsafe void BumperKnockbackLink(Node2* n, Bumper_node* bn)

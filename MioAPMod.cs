@@ -12,7 +12,6 @@ namespace MioAP
         GuiManager? guiManager;
         HooksManager? hooksManager;
         SaveGate? saveGate;
-        MenuManager? menuManager;
 
         internal static MioAPMod? Instance { get; private set; }
 
@@ -29,7 +28,6 @@ namespace MioAP
             apManager.SetToastSink(guiManager.ShowToast);
             hooksManager = new HooksManager(LogMessage, dataManager, apManager, guiManager.ShowToast);
             saveGate = new SaveGate(LogMessage, apManager, connectionStore, guiManager);
-            menuManager = new MenuManager(LogMessage, apManager, guiManager);
 
             hooksManager.InitHooks();
             guiManager.InitHooks();
