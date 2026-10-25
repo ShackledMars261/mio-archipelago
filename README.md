@@ -2,6 +2,8 @@
 The multiworld randomizer client for the game MIO: Memories in Orbit.
 
 ## Setup
+For those who would like a video tutorial, one can be found [here](https://www.youtube.com/watch?v=Zl-Z8Y7YIqU).
+
 1. MAKE SURE DOTNET 8 IS INSTALLED!!!
 2. Install the [mod loader](https://github.com/MIO-Modding/mod-loader)
 3. Run the game, and then close it
