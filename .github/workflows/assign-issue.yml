@@ -4,13 +4,18 @@ on:
   issue_comment:
     types: [created]
 
+permissions:
+  issues: write
+
 jobs:
   assign:
     runs-on: ubuntu-latest
-    if: contains(github.event.comment.body, '/assign')
+    if: ${{ !github.event.issue.pull_request && contains(github.event.comment.body, '/assign') }}
     steps:
       - name: Assign the commenter
-        uses: takanome-dev/assign-issue-action@v1.0.3
+        uses: takanome-dev/assign-issue-action@v2.1.1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          assigned_comment: "Issue has been assigned."
+          trigger: '/assign'
+          assigned_comment: 'Issue has been assigned to @{{ comment.user.login }}.'
+          days_until_unassign: 0
