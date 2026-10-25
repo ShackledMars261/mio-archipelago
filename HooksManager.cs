@@ -1610,8 +1610,6 @@ namespace MioAP
                 else
                 {
                     finishedIntro = true;
-                    MioGame.String introEntry = Util.StringToMioString("CODE:HACKER_REBORN");
-                    save.acquire(&introEntry);
                 }
             }
             
@@ -1715,11 +1713,7 @@ namespace MioAP
         private static unsafe bool InStartingCutscene(ref Mio mio)
         {
             ref var node = ref Unsafe.AsRef<Node2>(mio.node);
-            if (node._transform.translation.y > 4000.0 || mio.action.intro_drama.state._value == Mio.Action.Intro_drama_.State.Falling || mio.action.intro_drama.landing._value)
-            {
-                return true;
-            }
-            return false;
+            return node._transform.translation.y > 3000.0;
         }
 
 
