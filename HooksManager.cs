@@ -201,12 +201,13 @@ namespace MioAP
         private const string BunkerKeyEntry = "KEY:BUNKER_KEY";
 
         /// <summary>
-        /// Rooms whose bunker door has to track the pickup rather than the key.
+        /// Rooms where the bunker key question is answered by either half.
         ///
         /// Three doors open on the bunker key. Two of them are the way out of
-        /// the room the key is found in, so a key arriving early from
-        /// Archipelago must not open them, and taking the pickup must. The
-        /// third gates a large area and genuinely needs the real key.
+        /// the room the key is found in, and they open once the player has
+        /// EITHER taken the pickup or received the key from Archipelago - so
+        /// neither route can strand someone in there. The third gates a large
+        /// area and keeps reading the real entry on its own.
         ///
         /// There is no per-door hook to scope: the lock is scripted rather
         /// than authored into Door_node.starts_locked_by_key, which reports no
@@ -217,7 +218,7 @@ namespace MioAP
         ///     ST_security_spider_P5   hallway out  -> DOOR:TO_SECURITY_ASC_P2
         ///     GA_vin_transi_F3        the big door -> DOOR:door_ga_vin_bunker_2
         ///
-        /// Only the first two are listed, so the third keeps the real entry.
+        /// Only the first two are listed, so the third is untouched.
         /// </summary>
         private static readonly string[] BunkerPickupRooms =
             { "ST_security_spider_P4", "ST_security_spider_P5" };
@@ -707,8 +708,6 @@ namespace MioAP
 
         private unsafe void fixed_update_Prefix(Game* __this)
         {
-            ProcessOtherArchipelago(__this);
-
             try
             {
                 // Ahead of the drain, which bails out at the menu - this has to
@@ -787,6 +786,12 @@ namespace MioAP
                 }
             }
             catch (Exception ex) { LogMessage("[hooks] event scan failed: " + ex); }
+
+            try
+            {
+                ProcessOtherArchipelago(__this);
+            }
+            catch (Exception ex) { LogMessage("[hooks] ProcessOtherArchipelago failed: " + ex); }
         }
 
         /// <summary>
@@ -938,11 +943,6 @@ namespace MioAP
         /// </summary>
         private string? ShadowFor(string saveEntry)
         {
-            // Room-conditional rather than scope-driven, and so ahead of the
-            // scope lookup: there is no caller to hook. See BunkerPickupRooms.
-            if (_inBunkerPickupRoom && saveEntry == BunkerKeyEntry)
-                return DataManager.ShadowEntry(saveEntry);
-
             string[]? scope = _scopeEntries;
             if (scope == null) return null;
 
@@ -997,6 +997,24 @@ namespace MioAP
                     MioGame.String s = Util.StringToMioString(shadow);
                     return orig(__this, &s);
                 }
+
+                // The two doors out of the key's room take either answer: the
+                // pickup consumed, or the key held. Room-conditional because
+                // there is no caller to hook, and an OR rather than a redirect
+                // because either half unlocks them. See BunkerPickupRooms.
+                //
+                // Deliberately AFTER the scope lookup. Halyn's terminal - the
+                // key's pickup - stands in one of these rooms, and its own
+                // scope must keep winning: answered by this OR instead, a
+                // player holding the Archipelago key could never take the
+                // pickup and the location would be unsendable.
+                if (_inBunkerPickupRoom && id == BunkerKeyEntry)
+                {
+                    if (orig(__this, item_id)) return true;
+
+                    MioGame.String sh = Util.StringToMioString(DataManager.ShadowEntry(id));
+                    return orig(__this, &sh);
+                }
             }
             catch (Exception ex) { LogMessage("[hooks] has failed: " + ex); }
 
@@ -1022,6 +1040,16 @@ namespace MioAP
                 {
                     MioGame.String s = Util.StringToMioString(shadow);
                     return orig(__this, &s);
+                }
+
+                // Either half opens them; see the same block in mio_has_Hook,
+                // including why it sits after the scope lookup.
+                if (_inBunkerPickupRoom && id == BunkerKeyEntry)
+                {
+                    if (orig(__this, item_id)) return true;
+
+                    MioGame.String sh = Util.StringToMioString(DataManager.ShadowEntry(id));
+                    return orig(__this, &sh);
                 }
             }
             catch (Exception ex) { LogMessage("[hooks] has_more_than_zero failed: " + ex); }
@@ -1636,7 +1664,7 @@ namespace MioAP
                     {
                         queuedRespawn = false;
                         staggerFrames = 3;
-                        mio.move_to(apManager.startingPositon);
+                        mio.move_to(apManager.startingPosition);
                         LogMessage(mio.checkpoint.state._value.ToString());
                     }
                 }

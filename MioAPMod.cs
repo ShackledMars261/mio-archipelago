@@ -12,10 +12,15 @@ namespace MioAP
         GuiManager? guiManager;
         HooksManager? hooksManager;
         SaveGate? saveGate;
-        MenuManager? menuManager;
+
+        internal static MioAPMod? Instance { get; private set; }
 
         public override unsafe void Initialize()
         {
+            Instance = this;
+
+            ModOptions.Register(this);
+
             dataManager = new DataManager(LogMessage);
             apManager = new ArchipelagoManager(LogMessage, dataManager);
             connectionStore = new ConnectionStore(LogMessage);
@@ -23,11 +28,12 @@ namespace MioAP
             apManager.SetToastSink(guiManager.ShowToast);
             hooksManager = new HooksManager(LogMessage, dataManager, apManager, guiManager.ShowToast);
             saveGate = new SaveGate(LogMessage, apManager, connectionStore, guiManager);
-            menuManager = new MenuManager(LogMessage, apManager, guiManager);
 
             hooksManager.InitHooks();
             guiManager.InitHooks();
             saveGate.InitHooks();
+
+            ModOptions.CreateOptionBindings(guiManager);
 
             LogMessage("Initialization complete");
         }
