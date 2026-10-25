@@ -1623,7 +1623,6 @@ namespace MioAP
                         queuedRespawn = false;
                         staggerFrames = 3;
                         mio.move_to(apManager.startingPositon);
-                        LogMessage(mio.checkpoint.state._value.ToString());
                     }
                 }
             }
