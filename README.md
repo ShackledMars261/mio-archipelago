@@ -33,3 +33,14 @@ git config core.hooksPath .githooks
 4. Your PR will need to be reviewed before being merged into main. If there are any unresolved comments on your PR, please work with the reviewer to fix what they pointed out. ONLY THE REVIEWER/USER WHO LEFT THE COMMENT ORIGINALLY SHOULD RESOLVE IT! NOT YOU! Once all comments are resolved, they will re-review.
 5. Once your PR has been reviewed and approved, you can merge it into main! This will automatically close the issue and delete the branch.
 6. Congrats! You've fixed a bug with the mod.
+
+### Release Checklist
+- [ ] Make sure all files in ./lib are up-to-date
+- [ ] Generate fresh client/world.json, and copy to respective locations
+- [ ] Build APWorld file
+- [ ] Push both repositories (client and world)
+- [ ] Push version tag to client repo
+- [ ] Wait for release to build
+- [ ] Upload APWorld file
+- [ ] Fix release description saying actions bot is the author of all PRs
+- [ ] Publish release
