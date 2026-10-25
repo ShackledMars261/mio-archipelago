@@ -1595,7 +1595,7 @@ namespace MioAP
                 startDelay--;
                 return;
             }
-
+            
             ref var mio = ref __this->mio;
             ref var save = ref __this->save;
 
@@ -1631,6 +1631,7 @@ namespace MioAP
 
             if (apManager.queuedWarp)
             {
+                save.halyn_align.configuration_discrete = 2;
                 mio.move_to(apManager.startingPositon);
                 apManager.queuedWarp = false;
             }
