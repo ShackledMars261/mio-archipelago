@@ -627,6 +627,11 @@ namespace MioAP
         /// </summary>
         private static unsafe Save_entry* AcquireWithCount(ref Game game, string saveEntry)
         {
+            if (saveEntry.Split(":")[0] == "OVERSEER")
+            {
+                MioGame.String checkpoint = Util.StringToMioString(saveEntry.Replace("OVERSEER", "CHECKPOINT"));
+                game.save.acquire(&checkpoint);
+            }
             MioGame.String s = Util.StringToMioString(saveEntry);
             Save_entry* entry = game.save.acquire(&s);
 
