@@ -258,21 +258,10 @@ namespace MioAP
         {
             if (_session == null) return;
 
-            startingPositon = GetStartingPosition(GetSlotDataValue("starting_room", 0));
-
-            HooksManager.queuedRespawn = true;
-            isDeathLink = GetSlotDataValue("death_link", false);
-            UpdateTag("DeathLink", isDeathLink);
-            deathLinkAmnesty = GetSlotDataValue("death_link_amnesty", 1);
-            deathLinkGrace = GetSlotDataValue("death_link_grace", 1);
-            deathLinkService = _session.CreateDeathLinkService();
-            deathLinkService.OnDeathLinkReceived += ReceiveDeathLink;
-
-            isKnockbackLink = GetSlotDataValue("knockback_link", false);
-            UpdateTag("KnockbackLink", isKnockbackLink);
-
-            isDamageLink = GetSlotDataValue("damage_link", false);
-            UpdateTag("SharedDamage", isDamageLink);
+            if (_cachedSlotData.Count() != 0)
+            {
+                UseSlotData();
+            }
 
             _session.Socket.PacketReceived += ReceiveBounce;
 
@@ -294,6 +283,27 @@ namespace MioAP
 
             while (_deferredChecks.TryDequeue(out long pending))
                 SendLocationCheck(pending);
+        }
+        private void UseSlotData()
+        {
+            LogMessage("aagh");
+            foreach (var (key, value) in _cachedSlotData)
+            {
+                LogMessage($"{key}: {value}");
+            }
+
+            isDeathLink = GetSlotDataValue("death_link", 0) == 1;
+            UpdateTag("DeathLink", isDeathLink);
+            deathLinkAmnesty = (int)GetSlotDataValue("death_link_amnesty", 1);
+            deathLinkGrace = (int)GetSlotDataValue("death_link_grace", 1);
+            deathLinkService = _session.CreateDeathLinkService();
+            deathLinkService.OnDeathLinkReceived += ReceiveDeathLink;
+
+            isKnockbackLink = GetSlotDataValue("knockback_link", 0) == 1;
+            UpdateTag("KnockbackLink", isKnockbackLink);
+
+            isDamageLink = GetSlotDataValue("damage_link", 0) == 1;
+            UpdateTag("SharedDamage", isDamageLink);
         }
 
         /// <summary>
@@ -755,6 +765,7 @@ namespace MioAP
             try
             {
                 _cachedSlotData = await _session.DataStorage.GetSlotDataAsync(_session.ConnectionInfo.Slot);
+                UseSlotData();
             }
             catch (Exception ex)
             {
