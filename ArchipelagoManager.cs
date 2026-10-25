@@ -283,25 +283,7 @@ namespace MioAP
         }
         private void UseSlotData()
         {
-            isDeathLink = GetSlotDataValue("death_link", 0) == 1;
-            UpdateTag("DeathLink", isDeathLink);
-            deathLinkAmnesty = (int)GetSlotDataValue("death_link_amnesty", 1);
-            deathLinkGrace = (int)GetSlotDataValue("death_link_grace", 1);
-            deathLinkService = _session.CreateDeathLinkService();
-            deathLinkService.OnDeathLinkReceived += ReceiveDeathLink;
-
-            isKnockbackLink = GetSlotDataValue("knockback_link", 0) == 1;
-            UpdateTag("KnockbackLink", isKnockbackLink);
-
-            isDamageLink = GetSlotDataValue("damage_link", 0) == 1;
-            UpdateTag("SharedDamage", isDamageLink);
-
             startingPosition = GetStartingPosition((int)GetSlotDataValue("starting_room", 0));
-        }
-
-        private void UseSlotData()
-        {
-            startingPositon = GetStartingPosition((int)GetSlotDataValue("starting_room", 0));
 
             HooksManager.queuedRespawn = true;
             isDeathLink = GetSlotDataValue("death_link", 0) == 1;
@@ -809,7 +791,7 @@ namespace MioAP
         }
 
 
-        public MioGame.Vec_float_3 startingPositon;
+        public MioGame.Vec_float_3 startingPosition;
         public bool queuedWarp = false;
 
         public static readonly Vector2[] StartingLocations =
