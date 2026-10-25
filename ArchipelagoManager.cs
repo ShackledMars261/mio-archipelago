@@ -281,6 +281,23 @@ namespace MioAP
             while (_deferredChecks.TryDequeue(out long pending))
                 SendLocationCheck(pending);
         }
+        private void UseSlotData()
+        {
+            isDeathLink = GetSlotDataValue("death_link", 0) == 1;
+            UpdateTag("DeathLink", isDeathLink);
+            deathLinkAmnesty = (int)GetSlotDataValue("death_link_amnesty", 1);
+            deathLinkGrace = (int)GetSlotDataValue("death_link_grace", 1);
+            deathLinkService = _session.CreateDeathLinkService();
+            deathLinkService.OnDeathLinkReceived += ReceiveDeathLink;
+
+            isKnockbackLink = GetSlotDataValue("knockback_link", 0) == 1;
+            UpdateTag("KnockbackLink", isKnockbackLink);
+
+            isDamageLink = GetSlotDataValue("damage_link", 0) == 1;
+            UpdateTag("SharedDamage", isDamageLink);
+
+            startingPosition = GetStartingPosition((int)GetSlotDataValue("starting_room", 0));
+        }
 
         private void UseSlotData()
         {
@@ -717,10 +734,13 @@ namespace MioAP
                             case "KnockbackLink":
                                 if (!isKnockbackLink) break;
 
-                                Dictionary<string, float> values = bouncePacket.Data["value"].ToObject<Dictionary<string, float>>();
-                                MioGame.Vec_float_3 pos = new();
-                                pos.x = values["x"];
-                                pos.y = values["y"];
+                                if (!bouncePacket.Data.TryGetValue("value", out JToken? knockback)) break;
+
+                                var values = knockback.ToObject<Dictionary<string, float>>();
+                                if (values == null) break;
+                                if (!values.TryGetValue("x", out float kx) || !values.TryGetValue("y", out float ky)) break;
+
+                                MioGame.Vec_float_3 pos = new() { x = kx, y = ky };
                                 queuedKnockbackLink = AddVecFloat3(queuedKnockbackLink, pos);
                                 break;
                             case "SharedDamage":
@@ -732,12 +752,13 @@ namespace MioAP
                                 break;
                         }
                     }
-                    if (bouncePacket.Data.ContainsKey("bounce_type")) 
+                    if (bouncePacket.Data.ContainsKey("bounce_type"))
                     {
                         switch (bouncePacket.Data["bounce_type"].Value<string>())
                         {
                             case "LogMessage":
-                                LogMessage(bouncePacket.Data["text"].Value<string>());
+                                string? text = bouncePacket.Data.TryGetValue("text", out JToken? t) ? t.Value<string>() : null;
+                                if (text != null) LogMessage(text);
                                 break;
                         }
                     }
@@ -780,8 +801,9 @@ namespace MioAP
             {
                 return _cachedSlotData[key];
             }
-            catch (Exception ex) { 
-                LogMessage($"[AP] could not access slot data (for key {key}): " + ex); 
+            catch (Exception ex)
+            {
+                LogMessage($"[AP] could not access slot data (for key {key}): " + ex);
             }
             return fallback;
         }
@@ -790,7 +812,7 @@ namespace MioAP
         public MioGame.Vec_float_3 startingPositon;
         public bool queuedWarp = false;
 
-        public static readonly Vector2[] StartingLocations = 
+        public static readonly Vector2[] StartingLocations =
         [
             new Vector2(-1230, 1421), // ST_security_fall_P1 (normal start)
             new Vector2(-2898, 1871), // LQ_city_hall_C2
@@ -817,14 +839,15 @@ namespace MioAP
         // </summary>
         public void UpdateTag(string tag, bool on)
         {
-            if (connectionTags.Count > 0) LogMessage(connectionTags[0]);
-            
-            if (on) connectionTags.Add(tag);
-            else connectionTags.Remove(tag);
-            try
+            if (on)
             {
-                _session.ConnectionInfo.UpdateConnectionOptions([.. connectionTags]);
+                if (!connectionTags.Contains(tag)) connectionTags.Add(tag);
             }
+            else connectionTags.Remove(tag);
+
+            if (_session == null) return;
+
+            try { _session.ConnectionInfo.UpdateConnectionOptions([.. connectionTags]); }
             catch (Exception ex) { LogMessage("[AP] could not set tags: " + ex); }
         }
 
