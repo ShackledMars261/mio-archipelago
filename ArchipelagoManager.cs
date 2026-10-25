@@ -284,11 +284,6 @@ namespace MioAP
 
         private void UseSlotData()
         {
-            LogMessage("aagh");
-            foreach (var (key, value) in _cachedSlotData)
-            {
-                LogMessage($"{key}: {value}");
-            }
             startingPositon = GetStartingPosition((int)GetSlotDataValue("starting_room", 0));
 
             HooksManager.queuedRespawn = true;
