@@ -1583,16 +1583,39 @@ namespace MioAP
         private Vec_float_3 zeroVector = new Vec_float_3() { Base = new _vec_storage_float_3() { x = 0.0f, y = 0.0f, z = 0.0f } };
         public static bool queuedRespawn;
         private int staggerFrames = 3;
+        private int startDelay = 20;
         private bool satAtCheckpoint = false;
+        private bool finishedIntro = false;
 
 
         private unsafe void ProcessOtherArchipelago(Game* __this)
         {
+            if (startDelay > 0)
+            {
+                startDelay--;
+                return;
+            }
+
             ref var mio = ref __this->mio;
             ref var save = ref __this->save;
 
             if (mio.cutscene.active) return;
+            if (!finishedIntro)
+            {
+                bool value = InStartingCutscene(ref mio);
+                if (value)
+                {
+                    return;
+                }
+                else
+                {
+                    finishedIntro = true;
+                    MioGame.String introEntry = Util.StringToMioString("CODE:HACKER_REBORN");
+                    save.acquire(&introEntry);
+                }
+            }
             
+
             if (mio.checkpoint.state._value != Mio.Checkpoint.State.None)
             {
                 satAtCheckpoint = true;
@@ -1606,7 +1629,12 @@ namespace MioAP
                 }
             }
 
-            if (!satAtCheckpoint)
+            if (apManager.queuedWarp)
+            {
+                mio.move_to(apManager.startingPositon);
+                apManager.queuedWarp = false;
+            }
+            else if (!satAtCheckpoint)
             {
                 if (mio.life.dead._value)
                 {
@@ -1681,6 +1709,16 @@ namespace MioAP
                 }
                 previousShields = mio.life.shield_points;
             }
+        }
+
+        private static unsafe bool InStartingCutscene(ref Mio mio)
+        {
+            ref var node = ref Unsafe.AsRef<Node2>(mio.node);
+            if (node._transform.translation.y > 4000.0 || mio.action.intro_drama.state._value == Mio.Action.Intro_drama_.State.Falling || mio.action.intro_drama.landing._value)
+            {
+                return true;
+            }
+            return false;
         }
 
 

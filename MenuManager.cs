@@ -13,6 +13,7 @@ namespace MioAP
         ModMenuPage? menuPage;
 
         public NumberOption? toastSecondsOp;
+        public ButtonOption? warpToStart;
 
         public MenuManager(Action<string> loggingCBMethod, ArchipelagoManager apManager, GuiManager guiManager)
         {
@@ -38,6 +39,11 @@ namespace MioAP
                     1, 20, 1, 5, 
                     "The amount of seconds that archipelago message popups will persist.");
                 toastSecondsOp.Changed += (int value) => guiManager.toastSeconds = value;
+                warpToStart = menuPage.RegisterButton(
+                    "warp_to_start", "Warp to start",
+                    () => apManager.queuedWarp = true,
+                    "Warp back to your starting location."
+                    );
             }
             catch (Exception ex) { LogMessage("[AP] Could not register menu options: " + ex); }
         }
