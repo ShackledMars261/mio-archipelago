@@ -12,10 +12,17 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ !github.event.issue.pull_request && contains(github.event.comment.body, '/assign') }}
     steps:
+      - name: Get app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: Assign the commenter
         uses: takanome-dev/assign-issue-action@v2.1.1
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ steps.app-token.outputs.token }}
           trigger: '/assign'
           assigned_comment: 'Issue has been assigned to @{{ comment.user.login }}.'
           days_until_unassign: 0
