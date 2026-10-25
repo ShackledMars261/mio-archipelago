@@ -63,7 +63,7 @@ namespace MioAP
             WindowFlags_NoNavInputs | WindowFlags_NoNavFocus | WindowFlags_NoDocking;
 
         // ---- toast tuning ----
-        private const double ToastSeconds = 5.0;      // total lifetime
+        public double toastSeconds = 5.0;      // total lifetime
         private const double ToastFadeSeconds = 1.0;  // fade-out at the end of it
         private const int MaxToasts = 5;
         private const float ToastMargin = 16f;
@@ -92,7 +92,7 @@ namespace MioAP
         private const string DefaultPort = "38281";
 #else
         private const string DefaultHost = "archipelago.gg";
-        private const string DefaultPort = "";      // rooms get a per-room port
+        private const string DefaultPort = "38281";      // rooms get a per-room port
 #endif
         private readonly byte[] _host = NewBuf(DefaultHost, 64);
         private readonly byte[] _port = NewBuf(DefaultPort, 8);
@@ -204,7 +204,7 @@ namespace MioAP
             if (_toasts.Count == 0) return;
 
             double now = _clock.Elapsed.TotalSeconds;
-            _toasts.RemoveAll(t => now - t.born >= ToastSeconds);
+            _toasts.RemoveAll(t => now - t.born >= toastSeconds);
         }
 
         private void DrawToasts()
@@ -229,11 +229,11 @@ namespace MioAP
                     foreach (var (text, born) in _toasts)
                     {
                         double age = now - born;
-                        double fadeStart = ToastSeconds - ToastFadeSeconds;
+                        double fadeStart = toastSeconds - ToastFadeSeconds;
 
                         float alpha = age <= fadeStart
                             ? 1f
-                            : (float)((ToastSeconds - age) / ToastFadeSeconds);
+                            : (float)((toastSeconds - age) / ToastFadeSeconds);
 
                         if (alpha < 0f) alpha = 0f;
 

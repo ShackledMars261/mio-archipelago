@@ -1,10 +1,15 @@
 ﻿using Archipelago.MultiClient.Net;
+using Archipelago.MultiClient.Net.BounceFeatures.DeathLink;
+using Archipelago.MultiClient.Net.Converters;
 using Archipelago.MultiClient.Net.Enums;
 using Archipelago.MultiClient.Net.Packets;
+using MioGame.std;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
+using System.Numerics;
 
 using ItemSendMessage = Archipelago.MultiClient.Net.MessageLog.Messages.ItemSendLogMessage;
 
@@ -214,6 +219,8 @@ namespace MioAP
                 LogMessage($"Connected to {hostname}:{port} as \"{username}\". (Slot #{success.Slot})");
                 Toast($"Connected to Archipelago as {username}");
 
+                _ = CacheSlotData();
+
                 ResyncFromServer();
             }
             catch (Exception ex)
@@ -251,6 +258,13 @@ namespace MioAP
         {
             if (_session == null) return;
 
+            if (_cachedSlotData.Count() != 0)
+            {
+                UseSlotData();
+            }
+
+            _session.Socket.PacketReceived += ReceiveBounce;
+
             // Drop anything queued from a previous session, then re-enqueue everything.
             // Indices are stable, so the save watermark skips whatever was already applied.
             while (_pendingItems.TryDequeue(out _)) { }
@@ -269,6 +283,27 @@ namespace MioAP
 
             while (_deferredChecks.TryDequeue(out long pending))
                 SendLocationCheck(pending);
+        }
+        private void UseSlotData()
+        {
+            LogMessage("aagh");
+            foreach (var (key, value) in _cachedSlotData)
+            {
+                LogMessage($"{key}: {value}");
+            }
+
+            isDeathLink = GetSlotDataValue("death_link", 0) == 1;
+            UpdateTag("DeathLink", isDeathLink);
+            deathLinkAmnesty = (int)GetSlotDataValue("death_link_amnesty", 1);
+            deathLinkGrace = (int)GetSlotDataValue("death_link_grace", 1);
+            deathLinkService = _session.CreateDeathLinkService();
+            deathLinkService.OnDeathLinkReceived += ReceiveDeathLink;
+
+            isKnockbackLink = GetSlotDataValue("knockback_link", 0) == 1;
+            UpdateTag("KnockbackLink", isKnockbackLink);
+
+            isDamageLink = GetSlotDataValue("damage_link", 0) == 1;
+            UpdateTag("SharedDamage", isDamageLink);
         }
 
         /// <summary>
@@ -492,6 +527,366 @@ namespace MioAP
                 LogMessage("[AP] goal report failed: " + ex);
                 return false;
             }
+        }
+
+        // ---------------------------------------------------------------
+        // Shared data storage
+        //
+        // The browser map reads these keys, so the naming is a contract with it
+        // rather than something we can change unilaterally:
+        //
+        //     Mio_<slot>_<team>_<key>
+        //
+        // Only "events" exists today - the bosses the player has beaten, as
+        // strings the map understands ("Ati Defeated"). Other keys slot in
+        // without touching this code.
+        //
+        // Global scope on purpose: Scope.Slot would have the server prefix the
+        // key with the slot, which would break the agreed name.
+        // ---------------------------------------------------------------
+
+        public const string EventsKey = "events";
+
+        private string? DataStoreKey(string key) =>
+            _session == null
+                ? null
+                : $"Mio_{_session.ConnectionInfo.Slot}_{_session.ConnectionInfo.Team}_{key}";
+
+        /// <summary>
+        /// Adds an entry to one of the map's shared lists, creating the key if the
+        /// server doesn't have it yet. Idempotent: an entry already present - put
+        /// there by us on an earlier session, or by hand on the map - is left
+        /// alone, so reconnects can't duplicate it.
+        /// </summary>
+        public bool AddToList(string key, string entry, string? bounceType = null)
+        {
+            if (!IsConnected || _session == null) return false;
+
+            string? name = DataStoreKey(key);
+            if (name == null) return false;
+
+            try
+            {
+                // No-op once the key has a value, so this is safe on every call and
+                // is what creates the list on a fresh multiworld.
+                _session.DataStorage[Scope.Global, name].Initialize(new JArray());
+
+                _ = _session.DataStorage[Scope.Global, name].GetAsync<string[]>()
+                    .ContinueWith(t =>
+                    {
+                        if (t.IsFaulted)
+                        {
+                            LogMessage($"[AP] datastore read failed: {t.Exception?.GetBaseException().Message}");
+                            return;
+                        }
+
+                        try
+                        {
+                            string[]? current = t.Result;
+                            if (current != null && Array.IndexOf(current, entry) >= 0) return;
+
+                            _session.DataStorage[Scope.Global, name] += new[] { entry };
+                            LogMessage($"[AP] {key}: recorded \"{entry}\"");
+
+                            if (bounceType != null) SendBounce(bounceType);
+                        }
+                        catch (Exception ex) { LogMessage("[AP] datastore append failed: " + ex); }
+                    });
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogMessage("[AP] datastore write failed: " + ex);
+                return false;
+            }
+        }
+
+        /// <summary>Bounce type that tells the browser map to re-read its cache.</summary>
+        public const string UpdateEventsBounce = "UpdateEvents";
+
+        /// <summary>
+        /// Asks other clients on this slot to refresh. Deliberately not public to
+        /// the pump: a bounce is only correct once the write it announces has gone
+        /// out, so it is sent from the datastore continuation rather than beside it.
+        /// </summary>
+        private void SendBounce(string bounceType)
+        {
+            if (!IsConnected || _session == null) return;
+            try
+            {
+                _session.Socket.SendPacket(new BouncePacket
+                {
+                    Slots = new List<int> { _session.ConnectionInfo.Slot },
+                    Data = new Dictionary<string, JToken> { ["bounce_type"] = bounceType },
+                });
+            }
+            catch (Exception ex) { LogMessage("[AP] bounce failed: " + ex); }
+        }
+
+
+        public void SendDeathLink(string cause = "Died :(")
+        {
+            if (!IsConnected || _session == null || !isDeathLink) return;
+
+            deathLinkAmnestyPoints++;
+            if (deathLinkAmnestyPoints < deathLinkAmnesty) return;
+            deathLinkAmnestyPoints = 0;
+
+            try
+            {
+                lastDeathLinkTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                _session.Socket.SendPacket(new BouncePacket
+                {
+                    Tags = new List<string> { "DeathLink" },
+                    Data = new Dictionary<string, JToken>
+                    {
+                        ["source"] = _session.Players.ActivePlayer.Name,
+                        ["cause"] = cause,
+                        ["time"] = lastDeathLinkTime
+                    }
+                });
+            }
+            catch (Exception ex) { LogMessage("[AP] deathlink bounce failed: " + ex); }
+        }
+
+
+        public void SendDamageLink(int shieldsLost)
+        {
+            if (!IsConnected || _session == null || !isDamageLink) return;
+
+            try
+            {
+                lastDamageLinkTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                _session.Socket.SendPacket(new BouncePacket
+                {
+                    Tags = new List<string> { "SharedDamage" },
+                    Data = new Dictionary<string, JToken>
+                    {
+                        ["time"] = lastDamageLinkTime,
+                        ["uuid"] = uuid.ToString(),
+                        ["source"] = _session.Players.ActivePlayer.Name,
+                        ["damage_points"] = DamageLinkThreshold * shieldsLost
+                    }
+                });
+            }
+            catch (Exception ex) { LogMessage("[AP] damagelink bounce failed: " + ex); }
+        }
+
+
+
+        /// <summary>
+        /// {
+        ///   "bounce_type": "TriggerPopup",
+        ///   "text": "Wow a popup", # the text
+        ///   "color": "#FF0000", # color it shows in
+        ///   "persistent": false, # whether the player needs to dismiss it
+        /// }
+        /// </summary>
+        private void SendPopupToMap(string message, string hexCode = "#FFFFFF", bool persistent = false)
+        {
+            if (!IsConnected || _session == null) return;
+
+            try
+            {
+                _session.Socket.SendPacket(new BouncePacket
+                {
+                    Slots = new List<int> { _session.ConnectionInfo.Slot },
+                    Data = new Dictionary<string, JToken>
+                    {
+                        ["bounce_type"] = "TriggerPopup",
+                        ["text"] = message,
+                        ["color"] = hexCode,
+                        ["persistent"] = persistent,
+                    },
+                });
+            }
+            catch (Exception ex) { LogMessage("[AP] popup bounce failed: " + ex); }
+        }
+
+
+        // <summary>
+        // Processes a bounce packet from archipelago.
+        // </summary>
+        private void ReceiveBounce(ArchipelagoPacketBase packet)
+        {
+            switch (packet)
+            {
+                case BouncedPacket bouncePacket:
+                    if (bouncePacket.Tags.Count != 0)
+                    {
+                        switch (bouncePacket.Tags[0])
+                        {
+                            case "DeathLink":
+                                break;
+                            case "KnockbackLink":
+                                if (!isKnockbackLink) break;
+
+                                Dictionary<string, float> values = bouncePacket.Data["value"].ToObject<Dictionary<string, float>>();
+                                MioGame.Vec_float_3 pos = new();
+                                pos.x = values["x"];
+                                pos.y = values["y"];
+                                queuedKnockbackLink = AddVecFloat3(queuedKnockbackLink, pos);
+                                break;
+                            case "SharedDamage":
+                                if (!isDamageLink) break;
+                                if (Math.Abs(bouncePacket.Data["time"].ToObject<int>() - lastDamageLinkTime) < 2) break;
+
+                                int newPoints = bouncePacket.Data["damage_points"].ToObject<int>();
+                                damageLinkPoints += newPoints;
+                                break;
+                        }
+                    }
+                    if (bouncePacket.Data.ContainsKey("bounce_type")) 
+                    {
+                        switch (bouncePacket.Data["bounce_type"].Value<string>())
+                        {
+                            case "LogMessage":
+                                LogMessage(bouncePacket.Data["text"].Value<string>());
+                                break;
+                        }
+                    }
+                    break;
+            }
+        }
+
+
+        // <summary>The slot data (player options, as received from the server)</summary>
+        private Dictionary<string, dynamic> _cachedSlotData = [];
+
+
+        // <summary>
+        // Requests the player's slot data from the server, setting the cache when received.
+        // </summary>
+        private async Task CacheSlotData()
+        {
+            if (!IsConnected || _session == null) return;
+
+            try
+            {
+                _cachedSlotData = await _session.DataStorage.GetSlotDataAsync(_session.ConnectionInfo.Slot);
+                UseSlotData();
+            }
+            catch (Exception ex)
+            {
+                LogMessage("[AP] could not cache slot data: " + ex);
+            }
+        }
+
+
+        // <summary>
+        // Gets a slot data value from its key, returning the fallback if it cannot access it.
+        // </summary>
+        public dynamic GetSlotDataValue(string key, dynamic fallback)
+        {
+            if (!IsConnected || _session == null || !_cachedSlotData.ContainsKey(key)) return fallback;
+
+            try
+            {
+                return _cachedSlotData[key];
+            }
+            catch (Exception ex) { 
+                LogMessage($"[AP] could not access slot data (for key {key}): " + ex); 
+            }
+            return fallback;
+        }
+
+
+        public MioGame.Vec_float_3 startingPositon;
+
+        public static readonly Vector2[] StartingLocations = 
+        [
+            new Vector2(-1230, 1421), // ST_security_fall_P1 (normal start)
+            new Vector2(-2898, 1871), // LQ_city_hall_C2
+            new Vector2(-66, 2089), // GA_vin_terrace_P3
+            new Vector2(-3851, 1780), // LQ_vin_intro
+            new Vector2(-66, 2089), // GA_root_conex_P2
+        ];
+
+        public static MioGame.Vec_float_3 GetStartingPosition(int index)
+        {
+            MioGame.Vec_float_3 result = new();
+            Vector2 location = StartingLocations[index];
+            result.x = location.X;
+            result.y = location.Y;
+            result.z = 0;
+            return result;
+        }
+
+
+        public List<string> connectionTags = [];
+
+        // <summary>
+        // Adds the tag if on, otherwise removes it.
+        // </summary>
+        public void UpdateTag(string tag, bool on)
+        {
+            if (connectionTags.Count > 0) LogMessage(connectionTags[0]);
+            
+            if (on) connectionTags.Add(tag);
+            else connectionTags.Remove(tag);
+            try
+            {
+                _session.ConnectionInfo.UpdateConnectionOptions([.. connectionTags]);
+            }
+            catch (Exception ex) { LogMessage("[AP] could not set tags: " + ex); }
+        }
+
+
+        public Guid uuid = Guid.NewGuid();
+
+        public bool isDeathLink = false;
+        public bool queuedDeathLink = false;
+        public long lastDeathLinkTime = 0;
+        public unsafe DeathLinkService? deathLinkService;
+        public int deathLinkAmnesty = 1;
+        public int deathLinkGrace = 1;
+        public int deathLinkAmnestyPoints = 1;
+        public int deathLinkGracePoints = 1;
+
+        public bool isKnockbackLink;
+        public MioGame.Vec_float_3 queuedKnockbackLink;
+
+        public bool isDamageLink;
+        public int damageLinkPoints = 0;
+        public const int DamageLinkThreshold = 100;
+        public long lastDamageLinkTime = 0;
+
+
+        private void ReceiveDeathLink(DeathLink deathLink)
+        {
+            if (!isDeathLink) return;
+            if (Math.Abs(deathLink.Timestamp.ToUnixTimeStamp() - lastDeathLinkTime) < 2) return;
+            deathLinkGracePoints++;
+            if (deathLinkGracePoints >= deathLinkGrace)
+            {
+                queuedDeathLink = true;
+                deathLinkGracePoints = 0;
+            }
+            LogMessage($"[AP] DeathLink received from {deathLink.Source}: {deathLink.Cause}");
+        }
+
+
+        public static MioGame.Vec_float_3 AddVecFloat3(MioGame.Vec_float_3 vec1, MioGame.Vec_float_3 vec2)
+        {
+            MioGame.Vec_float_3 result = new();
+            result.x = vec1.x + vec2.x;
+            result.y = vec1.y + vec2.y;
+            result.z = vec1.z + vec2.z;
+            return result;
+        }
+        public static MioGame.Vec_float_3 MultiplyVecFloat3(MioGame.Vec_float_3 vec, float multiplier)
+        {
+            vec.x *= multiplier; vec.y *= multiplier; vec.z *= multiplier;
+            return vec;
+        }
+        public static bool IsVecFloat3Zero(MioGame.Vec_float_3 vec)
+        {
+            return IsFloatZero(vec.x) && IsFloatZero(vec.y) && IsFloatZero(vec.z);
+        }
+        private static bool IsFloatZero(float value)
+        {
+            return Math.Abs(value) < 0.00001f;
         }
     }
 }

@@ -2,6 +2,7 @@
 using MioModdingApi;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace MioAP
@@ -80,6 +81,7 @@ namespace MioAP
         private const string ExtraShieldsEntry = "RESOURCE:EXTRA_SHIELDS";
 
         private const string CarcassCategory = "CARCASS";
+        private const string DialogCategory = "DIALOG";
         private const string ShieldFragmentCategory = "SHIELD_FRAGMENT";
         private const string TrinketSlotUpgradeCategory = "TRINKET_SLOT_UPGRADE";
 
@@ -108,25 +110,46 @@ namespace MioAP
         private static readonly Random _rng = new();
 
         /// <summary>
-        /// Save entries that need an explicit count written after acquire(), and
-        /// the value to write. A key may be a full entry ("ATTACK_POWER:1") or a
-        /// category prefix ("ATTACK_POWER") covering every entry in it; a full
-        /// entry wins over a category.
+        /// The count to write after acquire() when nothing says otherwise.
         ///
-        /// Most entries ignore count - abilities and door keys work at 0, where
-        /// existence alone means the player has it. These categories store "how
-        /// many you have" in count, so it has to be set explicitly.
+        /// Match vanilla: a completed save holds 65 of 74 entries at count 1,
+        /// and the exceptions are either state markers the mod never grants
+        /// (FLOOR_ELEVATOR) or the nacre balances, which GrantItem handles on
+        /// its own. An entry's name doesn't tell us whether its readers test
+        /// existence or count - Mio::has tests existence but
+        /// Mio::has_more_than_zero does not - so writing what the game writes
+        /// is the only safe default. Granting at 0 is what kept the crucible
+        /// keys and the crucible reports from working.
+        /// </summary>
+        private const int DefaultGrantCount = 1;
+
+        /// <summary>
+        /// Entries whose count differs from DefaultGrantCount. A key may be a
+        /// full entry ("ATTACK_POWER:1") or a category prefix ("ATTACK_POWER")
+        /// covering every entry in it; a full entry wins over a category.
+        ///
+        /// Empty today - every category we grant wants 1. It stays as the place
+        /// to record a genuine exception when one turns up.
         ///
         /// Counts are SET rather than incremented, so writing the same entry
         /// twice is idempotent.
         /// </summary>
-        private static readonly Dictionary<string, int> GrantCounts = new(StringComparer.Ordinal)
+        private static readonly Dictionary<string, int> GrantCounts = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Extra entries to write alongside an Archipelago grant, keyed by the
+        /// item's own save entry.
+        ///
+        /// Some pickups write more than one entry, and the mod only knows about
+        /// the one the item maps to. Collecting a crucible report writes the
+        /// KEY entry - the report itself - and, in the same instant, the DIALOG
+        /// entry recording that its readout was shown. Writing both makes an
+        /// Archipelago grant indistinguishable from a pickup.
+        /// </summary>
+        private static readonly Dictionary<string, string[]> CompanionEntries = new(StringComparer.Ordinal)
         {
-            { "ATTACK_POWER",         1 },
-            { "SHIELD_FRAGMENT",      1 },
-            { "TRINKET_SLOT_UPGRADE", 1 },
-            { "CANDLE",               1 },
-            { "CARCASS",              1 },
+            { "KEY:CRUCIBLE_GLOOMWATER", new[] { "DIALOG:TXT_CRUCIBLE_DATAREPORT_GLOOMWATER" } },
+            { "KEY:CRUCIBLE_CRYSTAL",    new[] { "DIALOG:TXT_CRUCIBLE_DATAREPORT_CRYSTALLISATION" } },
         };
 
         // ---------------------------------------------------------------
@@ -217,6 +240,17 @@ namespace MioAP
         private readonly string[] _scopeShopOffers;
 
         /// <summary>
+        /// Flowing Steps. Its Samsk runs through update_hacker_crucible rather
+        /// than the shared update_hacker, so ScopeHacker never reaches it.
+        ///
+        /// Deliberately narrower than ScopeHacker: this handler also tests the two
+        /// crucible keys, and those are prerequisites the player must really own.
+        /// Redirecting them to their shadows would block anyone who received a key
+        /// from Archipelago without doing the challenge it came from.
+        /// </summary>
+        private static readonly string[] ScopeSpiderGoo = { "UNLOCK:SPIDER_GOO" };
+
+        /// <summary>
         /// A carcass pickup grants its currency in a second loot call - Nacre
         /// bumps SOLID_DROPLETS, an Old Core bumps FULL_PEARLS. When the first
         /// call is intercepted, this holds the entry that follow-up will use so
@@ -284,6 +318,86 @@ namespace MioAP
 
         private bool _victoryReported;
 
+        /// <summary>
+        /// Save entry -> the event name the browser map expects. The game writes
+        /// all of these itself, so there are no per-event hooks: the pump watches
+        /// the save and reports what it finds, which also picks up anything done
+        /// while disconnected or before this feature shipped.
+        ///
+        /// Mel Kidnapped and Mel Freed are absent on purpose - they live in
+        /// plotpoints.mel.quest rather than in a save entry, and are handled
+        /// separately.
+        /// </summary>
+        private static readonly (string Entry, string Event)[] MapEvents =
+        {
+            ("DIALOG:TXT_SHII_FILLED_3",       "Shii Partially Awakened"),
+            ("DIALOG:TXT_SHII_FILLING_DONE",   "Shii Fully Awakened"),
+
+            ("BOSS:BLACKSMITH",                "Acat Defeated"),
+            ("BOSS:TWIN_CRABASH",              "Ancile & Targa Defeated"),
+            ("BOSS:PROJEKT",                   "AnRa & Dr. Halyn Defeated"),
+            ("BOSS:SASUKE",                    "Ati Defeated"),
+            ("BOSS:TRAPU",                     "Atmos Defeated"),
+            ("BOSS:ZANGY",                     "Calderon Defeated"),
+            ("BOSS:SCARECROW",                 "Crow Defeated"),
+            ("BOSS:RAMBO",                     "Debby Defeated"),
+            ("BOSS:CRABASH",                   "Egis Defeated"),
+            ("BOSS:VINE",                      "Flora Defeated"),
+            ("BOSS:SPIDY",                     "Friends :) Defeated"),
+            ("BOSS:DEVOURER",                  "Lombre Defeated"),
+            ("BOSS:BAMBY",                     "Nabuu Defeated"),
+            ("BOSS:DOOR",                      "Poltergates Defeated"),
+            ("BOSS:SAW_LONGUE",                "Sawlong Defeated"),
+            ("BOSS:SHII",                      "Shii Defeated"),
+            ("BOSS:TWIN",                      "Sol & Vin Defeated"),
+            ("BOSS:WASHING_MACHINE",           "Vlad Defeated"),
+
+            ("HEART_ATTACK:INTRO",             "Starting Tremor"),
+            ("HEART_ATTACK:TUBE",              "Debby Tremor"),
+            ("HEART_ATTACK:LATE_GAME",         "\"Other\" Tremor"),
+            ("HEART_ATTACK:HORNFELL",          "Hornfell Tremor"),
+
+            ("HUB_TUNER:LIHO",                 "Turn In Liho's Voice"),
+            ("HUB_TUNER:HALYN",                "Turn In Halyn's Voice"),
+            ("HUB_TUNER:ASMA",                 "Turn In Asma's Voice"),
+            ("HUB_TUNER:AMYTIS",               "Turn In Amytis' Voice"),
+
+            ("DIALOG:TXT_HUB_MEL_WAITING_ONCE", "Find Mel"),
+            ("DIALOG:TXT_RAD_FREE",            "Find Rad"),
+            ("DIALOG:TXT_SIN_EXIT",            "Find Sin"),
+            ("DIALOG:TXT_COS_EXIT",            "Find Cos"),
+            ("DIALOG:TXT_TAN_EXIT",            "Find Tan"),
+
+            ("REBUILD_NPC:PUPPET_ALICE",       "Rescue Alice"),
+            ("CODE:LQ_UDG_BIG_FAN",            "Foundations Big Fan"),
+            ("CODE:ST_CUVE_01_ACTIVATED",      "Pump #1"),
+            ("CODE:ST_CUVE_02_ACTIVATED",      "Pump #2"),
+            ("CODE:ST_CUVE_03_ACTIVATED",      "Pump #3"),
+            ("CODE:ST_CUVE_04_ACTIVATED",      "Pump #4"),
+            ("CODE:WHEEL_FINGER_REPAIRED",     "Wheel Repaired"),
+        };
+
+        private const string MelKidnappedEvent = "Mel Kidnapped";
+        private const string MelFreedEvent = "Mel Freed";
+
+        /// <summary>Events already on the server, keyed by event name.</summary>
+        private readonly HashSet<string> _pushedEvents = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Frames between scans. Every frame would be 18 string marshals and save
+        /// lookups for something that changes a handful of times in a whole run.
+        /// </summary>
+        private const int EventScanInterval = 60;
+        private int _eventScanCountdown;
+
+        /// <summary>Old Cores awarded by conversation rather than a world pickup.</summary>
+        private static readonly HashSet<string> DialogOldCores = new(StringComparer.Ordinal)
+        {
+            "DIALOG:TXT_LQ_CITY_FOUNDATIONS",   // Poncia
+            "DIALOG:TXT_GA_VIN_SUDDEN_PEARL",   // Harpagon
+            "DIALOG:TXT_GA_BOU_MINDYOURSTEP",   // Ollantay
+        };
+
         public HooksManager(Action<string> loggingCBMethod, DataManager dataManager, ArchipelagoManager apManager, Action<string> showToastMethod)
         {
             _loggingCBMethod = loggingCBMethod;
@@ -318,12 +432,15 @@ namespace MioAP
             if (Diagnostics) BuildSymbolTable();
 #pragma warning restore CS0162
 
+            //On.MioGame.On_Bumper_node.activate.Prefix += BumperKnockbackLink;
+
             // Per-frame pump for queued Archipelago work.
             On.MioGame.On_Game.fixed_update.Prefix += fixed_update_Prefix;
 
             // Item and location interception.
             On.MioGame.On_Game.loot_1.Hook += loot_1_Hook;
             On.MioGame.On_Mio.has.Hook += mio_has_Hook;
+            On.MioGame.On_Mio.has_more_than_zero.Hook += mio_has_more_than_zero_Hook;
             On.MioGame.On_Ui_loot_popup.start.Hook += loot_popup_start_Hook;
             On.MioGame.On_Mio.trinket_slots_count.Hook += trinket_slots_count_Hook;
 
@@ -428,6 +545,32 @@ namespace MioAP
             On.MioGame.On_Npc_node.update_hacker.Hook +=
                 static (orig, self, node) => { using var s = new Scope(ScopeHacker, "Npc_node_hacker"); orig(self, node); };
 
+            // Flowing Steps' Samsk. Its own handler, so ScopeHacker never
+            // reaches it.
+            On.MioGame.On_Npc_node.update_hacker_crucible.Hook +=
+                static (orig, self, node) => { using var s = new Scope(ScopeSpiderGoo, "hacker_crucible"); orig(self, node); };
+
+            // Tomo runs the crucible sequence and hands over Flowing Steps at
+            // the end of it. He has his own handlers too.
+            On.MioGame.On_Npc_node.update_tomo.Hook +=
+                static (orig, self, node) => { using var s = new Scope(ScopeSpiderGoo, "tomo"); orig(self, node); };
+
+            On.MioGame.On_Npc_node.update_tomo2.Hook +=
+                static (orig, self, node) => { using var s = new Scope(ScopeSpiderGoo, "tomo2"); orig(self, node); };
+
+            // Tomo's placement. Npc_manager::update_tomo_plotpoints decides it
+            // by asking whether the player has Flowing Steps, and moves him home
+            // once they do - which removes him from the crucible before an
+            // Archipelago player can run the sequence. That function is INLINED
+            // into update_npcs, so hooking the standalone symbol does nothing;
+            // the inlined copy also picks TOMO_HOME straight from the has()
+            // result, before it ever reads plotpoints.tomo.quest.
+            //
+            // Narrow on purpose: update_npcs also queries CODE:MEL_PLUGGED and
+            // VOICE:HALYN, and those must keep reading the real save.
+            On.MioGame.On_Game.On_Npc_manager.update_npcs.Hook +=
+                static (orig, self) => { using var s = new Scope(ScopeSpiderGoo, "update_npcs"); orig(self); };
+
             On.MioGame.On_Hub_general.update_tuner3.Hook +=
                 static (orig, self, node) => { using var s = new Scope(ScopeMap, "Hub_general_tuner3"); orig(self, node); };
 
@@ -464,10 +607,10 @@ namespace MioAP
         // ===============================================================
 
         /// <summary>
-        /// Count to write for a save entry after acquiring it, or null to leave
-        /// whatever acquire() produced. Full entry first, then category prefix.
+        /// Count to write for a save entry after acquiring it. Full entry first,
+        /// then category prefix, then DefaultGrantCount.
         /// </summary>
-        private static int? CountFor(string saveEntry)
+        private static int CountFor(string saveEntry)
         {
             if (GrantCounts.TryGetValue(saveEntry, out int exact)) return exact;
 
@@ -475,7 +618,7 @@ namespace MioAP
             if (colon > 0 && GrantCounts.TryGetValue(saveEntry[..colon], out int byCategory))
                 return byCategory;
 
-            return null;
+            return DefaultGrantCount;
         }
 
         /// <summary>
@@ -484,13 +627,29 @@ namespace MioAP
         /// </summary>
         private static unsafe Save_entry* AcquireWithCount(ref Game game, string saveEntry)
         {
+            if (saveEntry.Split(":")[0] == "OVERSEER")
+            {
+                MioGame.String checkpoint = Util.StringToMioString(saveEntry.Replace("OVERSEER", "CHECKPOINT"));
+                game.save.acquire(&checkpoint);
+            }
             MioGame.String s = Util.StringToMioString(saveEntry);
             Save_entry* entry = game.save.acquire(&s);
 
-            int? want = CountFor(saveEntry);
-            if (want != null && entry != null) entry->count = want.Value;
+            if (entry != null) entry->count = CountFor(saveEntry);
 
             return entry;
+        }
+
+        /// <summary>
+        /// Writes the extra entries a pickup would have written alongside this
+        /// one. See CompanionEntries.
+        /// </summary>
+        private static unsafe void GrantCompanions(ref Game game, string saveEntry)
+        {
+            if (!CompanionEntries.TryGetValue(saveEntry, out string[]? companions)) return;
+
+            foreach (string companion in companions)
+                AcquireWithCount(ref game, companion);
         }
 
         /// <summary>Acquires an entry without touching its count.</summary>
@@ -548,6 +707,8 @@ namespace MioAP
 
         private unsafe void fixed_update_Prefix(Game* __this)
         {
+            ProcessOtherArchipelago(__this);
+
             try
             {
                 // Ahead of the drain, which bails out at the menu - this has to
@@ -600,6 +761,32 @@ namespace MioAP
                 }
             }
             catch (Exception ex) { LogMessage("[hooks] goal report failed: " + ex); }
+
+            try
+            {
+                if (apManager.IsConnected
+                    && _pushedEvents.Count < MapEvents.Length + 2   // +2: the Mel pair
+                    && --_eventScanCountdown <= 0)
+                {
+                    _eventScanCountdown = EventScanInterval;
+
+                    ref Game game = ref MioGame.Globals.game;
+
+                    foreach ((string entry, string name) in MapEvents)
+                    {
+                        if (_pushedEvents.Contains(name)) continue;
+
+                        MioGame.String e = Util.StringToMioString(entry);
+                        if (game.save.acquired_count(&e) > 0) PushEvent(name);
+                    }
+
+                    // Mel's capture and rescue are quest states, not save entries.
+                    var quest = game.save.plotpoints.mel.quest;
+                    if (quest >= Plotpoints.Mel.Quest.Captured) PushEvent(MelKidnappedEvent);
+                    if (quest >= Plotpoints.Mel.Quest.Returned) PushEvent(MelFreedEvent);
+                }
+            }
+            catch (Exception ex) { LogMessage("[hooks] event scan failed: " + ex); }
         }
 
         /// <summary>
@@ -640,6 +827,7 @@ namespace MioAP
             else
             {
                 AcquireWithCount(ref game, item.SaveEntry);
+                GrantCompanions(ref game, item.SaveEntry);
                 SyncDerivedResources(ref game, item.SaveEntry);
 
                 LogMessage($"[AP] granted \"{item.Name}\" ({item.SaveEntry})");
@@ -676,7 +864,7 @@ namespace MioAP
 
             // Old Core locations likewise use their real CARCASS entry, which is
             // what despawns the world pickup. Everything else uses a shadow.
-            string entry = vanillaItem.SaveEntry.StartsWith(CarcassCategory + ":", StringComparison.Ordinal)
+            string entry = MarksItselfConsumed(vanillaItem.SaveEntry)
                 ? vanillaItem.SaveEntry
                 : DataManager.ShadowEntry(vanillaItem.SaveEntry);
 
@@ -815,6 +1003,32 @@ namespace MioAP
             return orig(__this, item_id);
         }
 
+        /// <summary>
+        /// The count-based sibling of Mio::has. Same scope rules - a call site
+        /// asking "has this pickup been taken" means the same thing whichever
+        /// function it asks through.
+        /// </summary>
+        private unsafe bool mio_has_more_than_zero_Hook(
+            On.MioGame.On_Mio.orig_has_more_than_zero orig, Mio* __this, MioGame.String* item_id)
+        {
+            if (_scopeEntries == null && !_inBunkerPickupRoom) return orig(__this, item_id);
+
+            try
+            {
+                string id = Util.MioStringToString(*item_id);
+
+                string? shadow = ShadowFor(id);
+                if (shadow != null)
+                {
+                    MioGame.String s = Util.StringToMioString(shadow);
+                    return orig(__this, &s);
+                }
+            }
+            catch (Exception ex) { LogMessage("[hooks] has_more_than_zero failed: " + ex); }
+
+            return orig(__this, item_id);
+        }
+
         private unsafe Save_entry* loot_1_Hook(
             On.MioGame.On_Game.orig_loot_1 orig,
             Game* __this, MioGame.String* item_id, int count, Loot_flags flags)
@@ -862,14 +1076,16 @@ namespace MioAP
                     else
                         LogMessage($"[AP] unresolved location: '{id}' in room '{room}' - no check sent");
 
-                    // Old Core locations mark themselves consumed with their real
-                    // CARCASS entry, which is what despawns the world pickup. The
-                    // pickup also bumps FULL_PEARLS in a second loot call, which
-                    // has to go too or the player banks a core AP never sent.
-                    bool isOldCore = id.StartsWith(CarcassCategory + ":", StringComparison.Ordinal);
-                    if (isOldCore) _suppressNextLoot = FullPearlsEntry;
+                    // An Old Core pickup also bumps FULL_PEARLS in a second loot
+                    // call, which has to go too or the player banks a core AP
+                    // never sent. Three of them are conversation rewards rather
+                    // than world pickups, so the CARCASS prefix doesn't catch
+                    // them and they're listed by name.
+                    if (id.StartsWith(CarcassCategory + ":", StringComparison.Ordinal)
+                        || DialogOldCores.Contains(id))
+                        _suppressNextLoot = FullPearlsEntry;
 
-                    string consumedEntry = isOldCore ? id : DataManager.ShadowEntry(id);
+                    string consumedEntry = MarksItselfConsumed(id) ? id : DataManager.ShadowEntry(id);
 
                     return AcquireWithCount(ref game, consumedEntry);
                 }
@@ -1152,6 +1368,31 @@ namespace MioAP
             return true;
         }
 
+        /// <summary>Reports an event once. Repeat calls are free.</summary>
+        private void PushEvent(string name)
+        {
+            if (_pushedEvents.Contains(name)) return;
+
+            if (apManager.AddToList(ArchipelagoManager.EventsKey, name,
+                                    ArchipelagoManager.UpdateEventsBounce))
+                _pushedEvents.Add(name);
+        }
+
+        /// <summary>
+        /// True when an entry is the game's own "this is done" marker, so the real
+        /// entry is written on a check rather than a shadow.
+        ///
+        /// A CARCASS entry is what despawns the world pickup. A DIALOG entry is what
+        /// stops an NPC repeating a conversation - it's read back through
+        /// game::npc::has_dialog, which is just has("DIALOG:" + id) and sits outside
+        /// the scope system entirely, so a shadow would be invisible to it. Neither
+        /// entry grants the player anything on its own, which is what makes writing
+        /// the real one safe.
+        /// </summary>
+        private static bool MarksItselfConsumed(string saveEntry) =>
+            saveEntry.StartsWith(CarcassCategory + ":", StringComparison.Ordinal) ||
+            saveEntry.StartsWith(DialogCategory + ":", StringComparison.Ordinal);
+
         // ===============================================================
         // Diagnostics
         //
@@ -1339,6 +1580,142 @@ namespace MioAP
 
             int plus = frame.IndexOf('+');
             return plus > 0 ? frame[..plus] : frame;
+        }
+
+
+        private bool alreadyDead = false;
+        private int previousShields = -1;
+        private Vec_float_3 zeroVector = new Vec_float_3() { Base = new _vec_storage_float_3() { x = 0.0f, y = 0.0f, z = 0.0f } };
+        public static bool queuedRespawn;
+        private int staggerFrames = 3;
+        private int startDelay = 20;
+        private bool satAtCheckpoint = false;
+        private bool finishedIntro = false;
+
+
+        private unsafe void ProcessOtherArchipelago(Game* __this)
+        {
+            if (startDelay > 0)
+            {
+                startDelay--;
+                return;
+            }
+
+            ref var mio = ref __this->mio;
+            ref var save = ref __this->save;
+
+            if (mio.cutscene.active) return;
+            if (!finishedIntro)
+            {
+                bool value = InStartingCutscene(ref mio);
+                if (value)
+                {
+                    return;
+                }
+                else
+                {
+                    finishedIntro = true;
+                    MioGame.String introEntry = Util.StringToMioString("CODE:HACKER_REBORN");
+                    save.acquire(&introEntry);
+                }
+            }
+
+            if (!satAtCheckpoint)
+            {
+                if (mio.life.dead._value)
+                {
+                    queuedRespawn = true;
+                }
+                else if (queuedRespawn)
+                {
+                    if (staggerFrames > 0)
+                    {
+                        staggerFrames--;
+                    }
+                    else
+                    {
+                        queuedRespawn = false;
+                        staggerFrames = 3;
+                        mio.move_to(apManager.startingPositon);
+                        LogMessage(mio.checkpoint.state._value.ToString());
+                    }
+                }
+            }
+
+            if (apManager.isDeathLink)
+            {
+                if (apManager.queuedDeathLink)
+                {
+                    //MioGame.GlobalFunctions.game.mio.mio_set_dead((Mio*)Unsafe.AsPointer(ref mio), null);
+                    mio.life.health_points = 0;
+                    mio.life.shield_points = 0;
+                    Vec_float_3 pos = new();
+                    pos.x = -967; pos.y = 1430; pos.z = 0;
+                    mio.move_to(pos);
+                    apManager.queuedDeathLink = false;
+                }
+                else if (mio.life.dead._value)
+                {
+                    if (!alreadyDead)
+                    {
+                        apManager.SendDeathLink();
+                        alreadyDead = true;
+                        LogMessage("[AP] Sending DeathLink!");
+                    }
+                }
+                else
+                {
+                    alreadyDead = false;
+                }
+            }
+            if (apManager.isKnockbackLink)
+            {
+                if (!ArchipelagoManager.IsVecFloat3Zero(apManager.queuedKnockbackLink))
+                {
+                    LogMessage(apManager.queuedKnockbackLink.y.ToString());
+                    mio.velocity = ArchipelagoManager.AddVecFloat3(mio.velocity, ArchipelagoManager.MultiplyVecFloat3(apManager.queuedKnockbackLink, 2.0f));
+                    mio.move_by(new Vec_float_3() { Base = new _vec_storage_float_3() { y = 1.0f } });
+                    LogMessage(mio.velocity.y.ToString());
+                    apManager.queuedKnockbackLink = zeroVector;
+                }
+                // Send knockbacklink here
+            }
+            if (apManager.isDamageLink)
+            {
+                if (apManager.damageLinkPoints >= ArchipelagoManager.DamageLinkThreshold && mio.life.shield_points > 0)
+                {
+                    int shieldsToLose = apManager.damageLinkPoints / ArchipelagoManager.DamageLinkThreshold;
+                    shieldsToLose = Math.Min(mio.life.shield_points, shieldsToLose);
+                    mio.life.shield_points -= shieldsToLose;
+                    apManager.damageLinkPoints -= ArchipelagoManager.DamageLinkThreshold * shieldsToLose;
+                }
+                else if (previousShields > mio.life.shield_points && previousShields != -1)
+                {
+                    apManager.SendDamageLink(previousShields - mio.life.shield_points);
+                    LogMessage("[AP] Sending DamageLink!");
+                }
+                previousShields = mio.life.shield_points;
+            }
+        }
+
+
+        private static unsafe bool InStartingCutscene(ref Mio mio)
+        {
+            ref var node = ref Unsafe.AsRef<Node2>(mio.node);
+            if (node._transform.translation.y > 4000.0 || mio.action.intro_drama.state._value == Mio.Action.Intro_drama_.State.Falling || mio.action.intro_drama.landing._value)
+            {
+                return true;
+            }
+            return false;
+        }
+
+        private unsafe void BumperKnockbackLink(Node2* n, Bumper_node* bn)
+        {
+            ref Bumper_node bumper = ref Unsafe.AsRef<Bumper_node>(bn);
+            if (apManager.isKnockbackLink)
+            {
+                LogMessage($"Bumper activated with strength {bumper.strength} and range {bumper.range}");
+            }
         }
     }
 }
