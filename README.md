@@ -2,6 +2,8 @@
 The multiworld randomizer client for the game MIO: Memories in Orbit.
 
 ## Setup
+For those who would like a video tutorial, one can be found [here](https://www.youtube.com/watch?v=Zl-Z8Y7YIqU).
+
 1. MAKE SURE DOTNET 8 IS INSTALLED!!!
 2. Install the [mod loader](https://github.com/MIO-Modding/mod-loader)
 3. Run the game, and then close it
@@ -26,7 +28,7 @@ git config core.hooksPath .githooks
 
 ### Working on the Mod
 1. Find an issue you'd like to work on [here](https://github.com/ShackledMars261/mio-archipelago/issues). If there isn't an issue for what you'd like to work on, please create one.
-2. Add yourself as the assignee of the issue. This will automatically create a new branch and draft PR for you to work from.
+2. Add yourself as the assignee of the issue by commenting `/assign`. This will automatically create a new branch and draft PR for you to work from.
 3. Work off of the created branch, and when your changes are ready, create a PR to merge it into main.
 4. Your PR will need to be reviewed before being merged into main. If there are any unresolved comments on your PR, please work with the reviewer to fix what they pointed out. ONLY THE REVIEWER/USER WHO LEFT THE COMMENT ORIGINALLY SHOULD RESOLVE IT! NOT YOU! Once all comments are resolved, they will re-review.
 5. Once your PR has been reviewed and approved, you can merge it into main! This will automatically close the issue and delete the branch.
