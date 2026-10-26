@@ -33,7 +33,7 @@ namespace MioAP
             guiManager.InitHooks();
             saveGate.InitHooks();
 
-            ModOptions.CreateOptionBindings(guiManager);
+            ModOptions.CreateOptionBindings(guiManager, apManager);
 
             LogMessage("Initialization complete");
         }

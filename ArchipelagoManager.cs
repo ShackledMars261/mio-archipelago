@@ -285,19 +285,21 @@ namespace MioAP
         {
             startingPosition = GetStartingPosition((int)GetSlotDataValue("starting_room", 0));
 
+#pragma warning disable CS8602 // Deference of a possibly null reference.
             HooksManager.queuedRespawn = true;
-            isDeathLink = GetSlotDataValue("death_link", 0) == 1;
-            UpdateTag("DeathLink", isDeathLink);
+            ToggleDeathLink(GetSlotDataValue("death_link", 0) == 1);
+            ModOptions.deathLink.Value = isDeathLink;
             deathLinkAmnesty = (int)GetSlotDataValue("death_link_amnesty", 1);
             deathLinkGrace = (int)GetSlotDataValue("death_link_grace", 1);
             deathLinkService = _session.CreateDeathLinkService();
             deathLinkService.OnDeathLinkReceived += ReceiveDeathLink;
 
-            isKnockbackLink = GetSlotDataValue("knockback_link", 0) == 1;
-            UpdateTag("KnockbackLink", isKnockbackLink);
+            ToggleKnockbackLink(GetSlotDataValue("knockback_link", 0) == 1);
+            ModOptions.knockbackLink.Value = isKnockbackLink;
 
-            isDamageLink = GetSlotDataValue("damage_link", 0) == 1;
-            UpdateTag("SharedDamage", isDamageLink);
+            ToggleDamageLink(GetSlotDataValue("damage_link", 0) == 1);
+            ModOptions.damageLink.Value = isDamageLink;
+#pragma warning restore CS8602 // Deference of a possibly null reference.
         }
 
         /// <summary>
@@ -844,14 +846,44 @@ namespace MioAP
         public int deathLinkGrace = 1;
         public int deathLinkAmnestyPoints = 1;
         public int deathLinkGracePoints = 1;
+        public void ToggleDeathLink(bool value)
+        {
+            if (_session == null) return;
+            isDeathLink = value;
+            UpdateTag("DeathLink", value);
+        }
+        public void ToggleDeathLink()
+        {
+            ToggleDeathLink(!isDeathLink);
+        }
 
         public bool isKnockbackLink;
         public MioGame.Vec_float_3 queuedKnockbackLink;
+        public void ToggleKnockbackLink(bool value)
+        {
+            if (_session == null) return;
+            isKnockbackLink = value;
+            UpdateTag("KnockbackLink", value);
+        }
+        public void ToggleKnockbackLink()
+        {
+            ToggleKnockbackLink(!isKnockbackLink);
+        }
 
         public bool isDamageLink;
         public int damageLinkPoints = 0;
         public const int DamageLinkThreshold = 100;
         public long lastDamageLinkTime = 0;
+        public void ToggleDamageLink(bool value)
+        {
+            if (_session == null) return;
+            isDamageLink = value;
+            UpdateTag("SharedDamage", value);
+        }
+        public void ToggleDamageLink()
+        {
+            ToggleDamageLink(!isDamageLink);
+        }
 
 
         private void ReceiveDeathLink(DeathLink deathLink)
