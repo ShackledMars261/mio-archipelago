@@ -1,4 +1,5 @@
 ﻿using MioGame;
+using MioModdingApi;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -9,8 +10,9 @@ using static MioGame.GlobalFunctions.Functions;
 namespace MioAP
 {
     /// <summary>
-    /// The in-game Archipelago UI: a connection menu toggled with INSERT, and
-    /// transient notifications when items arrive.
+    /// The in-game Archipelago UI: a connection menu toggled with a rebindable key
+    /// (F1 by default, set in Settings > Mods > Archipelago), and transient
+    /// notifications when items arrive.
     ///
     /// This draws into the game's OWN ImGui context rather than compositing a
     /// separate overlay, by hooking gui_render and submitting widgets between the
@@ -24,8 +26,9 @@ namespace MioAP
     /// restores it immediately, leaving the game's F11 toggle in sync.
     ///
     /// Two smaller consequences of living inside someone else's context:
-    /// the INSERT toggle polls GetAsyncKeyState rather than reading ImGui's key
-    /// state, because ImGui only sees input when one of its windows has focus; and
+    /// the menu toggle polls GetAsyncKeyState (see MenuKeyPoller) rather than
+    /// reading ImGui's key state, because ImGui only sees input when one of its
+    /// windows has focus; and
     /// the cursor has to be re-asserted every frame, because the game sets it back
     /// every frame.
     ///
@@ -68,18 +71,13 @@ namespace MioAP
         private const int MaxToasts = 5;
         private const float ToastMargin = 16f;
 
-        // ---- win32 ----
-        private const int VK_INSERT = 0x2D;
-        [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int vKey);
-
         // ---- dependencies ----
         private readonly Action<string> _loggingCBMethod;
         private readonly ArchipelagoManager apManager;
 
         // ---- state ----
-        private bool _isOpen;          // menu starts closed; INSERT opens it
-        private bool _insertWasDown;
-        private bool _pollPrimed;
+        private bool _isOpen;          // menu starts closed; the toggle key opens it
+        private MenuKeyPoller? _toggleKey;
 
         // Handoff from whichever thread grants items to the render thread.
         private readonly ConcurrentQueue<string> _incomingToasts = new();
@@ -111,6 +109,12 @@ namespace MioAP
         {
             On.MioGame.GlobalFunctions.engine.On_gui.gui_render.Prefix += Gui_render_Prefix;
             LogMessage("[gui] hooks installed");
+        }
+
+        /// <summary>Sets the keybind that opens and closes the connection menu.</summary>
+        internal void SetToggleKeybind(KeybindOption keybind)
+        {
+            _toggleKey = new MenuKeyPoller(keybind);
         }
 
         /// <summary>
@@ -161,19 +165,12 @@ namespace MioAP
 
         private void PollToggle()
         {
-            bool down = (GetAsyncKeyState(VK_INSERT) & 0x8000) != 0;
+            if (_toggleKey == null) return;
 
-            // First frame: record the key state without acting on it, so a key
-            // already held at startup doesn't register as a fresh press.
-            if (!_pollPrimed)
-            {
-                _pollPrimed = true;
-                _insertWasDown = down;
-                return;
-            }
-
-            if (down && !_insertWasDown) _isOpen = !_isOpen;
-            _insertWasDown = down;
+            // While a text field has focus, keys that type a character don't toggle,
+            // so a binding like K doesn't close the menu mid-way through a slot name.
+            bool typing = ImGui__GetIO()->WantTextInput;
+            if (_toggleKey.Pressed(typing)) _isOpen = !_isOpen;
         }
 
         /// <summary>
@@ -302,7 +299,8 @@ namespace MioAP
                     if (Button("Close", 120f)) open = false;
 
                     ImGui__Separator();
-                    Text("INSERT = toggle menu");
+                    string? key = _toggleKey?.KeyName();
+                    Text(key != null ? $"{key} = toggle menu" : "Set a toggle key in Settings > Mods");
                 }
                 ImGui__End();
 

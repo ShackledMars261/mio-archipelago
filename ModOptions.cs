@@ -7,6 +7,7 @@ namespace MioAP
     /// </summary>
     internal static class ModOptions
     {
+        private static KeybindOption? menuToggle;
         private static NumberOption? toastDuration;
 
         public static ToggleOption? deathLink;
@@ -20,6 +21,12 @@ namespace MioAP
         {
             var page = ModMenu.RegisterMod(mod, displayName: "Archipelago", "ArchipelagoMW Randomizer settings.");
 
+            menuToggle = page.RegisterKeybind(
+                "menu_toggle", "Connection menu",
+                defaultKey: MioGame.Key.Key_F1,
+                controller: false,        // keyboard/mouse row only
+                description: "Opens and closes the Archipelago connection menu."
+                );
             toastDuration = page.RegisterNumber(
                 "toast_seconds", "Toast duration",
                 1, 20, 1, 5,
@@ -69,6 +76,7 @@ namespace MioAP
         internal static void CreateOptionBindings(GuiManager guiManager, ArchipelagoManager apManager)
         {
 #pragma warning disable CS8604 // Possible null reference argument.
+            guiManager.SetToggleKeybind(menuToggle);
             Bind(toastDuration, guiManager.SetToastDuration);
             Bind(deathLink, apManager.ToggleDeathLink);
             Bind(knockbackLink, apManager.ToggleKnockbackLink);

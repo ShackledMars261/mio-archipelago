@@ -11,7 +11,7 @@ For those who would like a video tutorial, one can be found [here](https://www.y
 
 ## Running
 1. Run the game
-2. Press insert
+2. Press F1 (can be rebound in mod settings)
 3. Enter your connection info and press connect
 4. Make a new save
 
@@ -42,5 +42,6 @@ git config core.hooksPath .githooks
 - [ ] Push version tag to client repo
 - [ ] Wait for release to build
 - [ ] Upload APWorld file
+- [ ] Upload devsheet.xlsx to release (for interactive map)
 - [ ] Fix release description saying actions bot is the author of all PRs
 - [ ] Publish release
