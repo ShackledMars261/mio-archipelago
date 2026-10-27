@@ -1646,14 +1646,14 @@ namespace MioAP
                 }
             }
 
-
-            if (mio.checkpoint.state._value != Mio.Checkpoint.State.None)
-            {
-                satAtCheckpoint = true;
-                return;
-            }
             if (!satAtCheckpoint)
             {
+                if (mio.checkpoint.state._value != Mio.Checkpoint.State.None || Util.MioStringToString(save.previous_checkpoint_id) != "cp_FOCUS_dispatch_zone")
+                {
+                    satAtCheckpoint = true;
+                    return;
+                }
+
                 bool value = InStartingCutscene(ref mio);
                 if (value)
                 {
@@ -1667,21 +1667,22 @@ namespace MioAP
                 }
             }
 
-            if (apManager.queuedWarp)
+            if (apManager.queuedWarp) //  Only set (to true) by the button
             {
                 save.halyn_align.configuration_discrete = 2;
                 mio.move_to(apManager.startingPosition);
                 apManager.queuedWarp = false;
             }
-            else if (!satAtCheckpoint)
+            else if (!satAtCheckpoint) // If you haven't sat at a checkpoint this session (now checks in save slot too)
             {
                 if (mio.life.dead._value)
                 {
                     queuedRespawn = true;
+                    staggerFrames = 3;
                 }
-                else if (queuedRespawn)
+                else if (queuedRespawn) // Specifically waits until mio ISN'T dead
                 {
-                    if (staggerFrames > 0)
+                    if (staggerFrames > 0) // Then waits three more frames
                     {
                         staggerFrames--;
                     }
@@ -1689,6 +1690,7 @@ namespace MioAP
                     {
                         queuedRespawn = false;
                         staggerFrames = 3;
+                        save.halyn_align.configuration_discrete = 2;
                         mio.move_to(apManager.startingPosition);
                     }
                 }
@@ -1701,6 +1703,7 @@ namespace MioAP
                     //MioGame.GlobalFunctions.game.mio.mio_set_dead((Mio*)Unsafe.AsPointer(ref mio), null);
                     mio.life.health_points = 0;
                     mio.life.shield_points = 0;
+                    mio.life.invulnerable_remaining = 0.0f;
                     Vec_float_3 pos = new();
                     pos.x = -967; pos.y = 1430; pos.z = 0;
                     mio.move_to(pos);
