@@ -24,8 +24,8 @@ target = ""
 
 [publish]
 repository = "https://thunderstore.io"
-communities = [ "mio", ]
+communities = [ "mio-memories-in-orbit", ]
 [publish.categories]
-mio = []
+mio-memories-in-orbit = []
 
 
