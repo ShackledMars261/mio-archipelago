@@ -15,10 +15,10 @@ MIOModding-ModdingAPI = "2.0.3"
 [build]
 icon = "./icon.png"
 readme = "./README.md"
-outdir = "./bin/MioAP"
+outdir = "./build"
 
 [[build.copy]]
-source = "./dist"
+source = "./bin/MioAP"
 target = ""
 
 
