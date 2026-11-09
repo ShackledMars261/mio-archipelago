@@ -64,8 +64,12 @@
 				 Text="Flattened native: %(NativeAsset.Filename)%(NativeAsset.Extension)" />
 	</Target>
 
-	<Target Name="PostBuild" AfterTargets="PostBuildEvent">
+	<Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="'$(os)' == Windows_NT">
 		<Exec Command="call &quot;$(ProjectDir)post-build.bat&quot; &quot;$(TargetPath)&quot; &quot;$(ProjectName)&quot; &quot;$(TargetDir)&quot;" WorkingDirectory="$(ProjectDir)" />
+	</Target>
+
+	<Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="'$(os)' == UNIX">
+		<Exec Command="&quot;$(ProjectDir)post-build.sh&quot; &quot;$(TargetPath)&quot; &quot;$(ProjectName)&quot; &quot;$(TargetDir)&quot;" WorkingDirectory="$(ProjectDir)" />
 	</Target>
 
 	<PropertyGroup>
@@ -75,7 +79,7 @@
 		<GameModsDir Condition="'$(GameModsDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\MIO\mods\MioAP</GameModsDir>
 	</PropertyGroup>
 
-	<Target Name="DeployToGame" AfterTargets="PostBuild" Condition="'$(DeployToGame)' == 'true'">
+	<Target Name="DeployToGame" AfterTargets="PostBuild" Condition="'$(DeployToGame)' == 'true' And '$(os)' == Windows_NT">
 		<PropertyGroup>
 			<StageDir>$(ProjectDir)bin\$(ProjectName)</StageDir>
 		</PropertyGroup>
@@ -92,6 +96,26 @@
 		<Warning Condition="'$(RobocopyExit)' &gt;= 8"
 				 Text="Deploy to &quot;$(GameModsDir)&quot; failed (robocopy $(RobocopyExit)). Is the game running?" />
 		<Message Condition="'$(RobocopyExit)' &lt; 8" Importance="high"
+				 Text="Deployed to $(GameModsDir)" />
+	</Target>
+
+	<Target Name="DeployToGame" AfterTargets="PostBuild" Condition="'$(DeployToGame)' == 'true' And '$(os)' == UNIX">
+		<PropertyGroup>
+			<StageDir>$(ProjectDir)bin\$(ProjectName)</StageDir>
+		</PropertyGroup>
+
+		<!-- 'exclude' keeps saved_connections.json out of the mirror entirely: it is
+		     written by the mod at runtime, so it must survive both the overwrite
+		     and the /MIR delete pass that would otherwise purge it as an extra. -->
+		<Exec Command="rsync &quot;$(StageDir)/*&quot; &quot;$(GameModsDir)&quot; --exclude saved_connections.json"
+			  IgnoreExitCode="true"
+			  ContinueOnError="true">
+			<Output TaskParameter="ExitCode" PropertyName="rsyncExit" />
+		</Exec>
+
+		<Warning Condition="'$(rsyncExit)' &gt;= 1"
+				 Text="Deploy to &quot;$(GameModsDir)&quot; failed (rsync $(RobocopyExit)). Is the game running?" />
+		<Message Condition="'$(rsyncExit)' &lt; 1" Importance="high"
 				 Text="Deployed to $(GameModsDir)" />
 	</Target>
 </Project>
