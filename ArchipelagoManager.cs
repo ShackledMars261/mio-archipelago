@@ -299,6 +299,8 @@ namespace MioAP
 
             ToggleDamageLink(GetSlotDataValue("damage_link", 0) == 1);
             ModOptions.damageLink.Value = isDamageLink;
+
+            HooksManager.OverseersUnlockCheckpoints = GetSlotDataValue("fast_travel_unlock", true);
 #pragma warning restore CS8602 // Deference of a possibly null reference.
         }
 
