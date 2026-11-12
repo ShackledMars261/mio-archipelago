@@ -1667,11 +1667,40 @@ namespace MioAP
                 }
             }
 
-            if (apManager.queuedWarp) //  Only set (to true) by the button
+            if (apManager.queuedWarp != WarpLocations.None) //  Only set by the buttons
             {
-                save.halyn_align.configuration_discrete = 2;
-                mio.move_to(apManager.startingPosition);
-                apManager.queuedWarp = false;
+                switch (apManager.queuedWarp)
+                {
+                    case WarpLocations.Start:
+                        save.halyn_align.configuration_discrete = 2;
+                        mio.move_to(apManager.startingPosition);
+                        break;
+                    case WarpLocations.Nexus:
+                        var nexusCheckpointId = Util.StringToMioString("CHECKPOINT:cp_HUB_main_down_P1");
+                        if (save.peek(&nexusCheckpointId)->flags.HasFlag(Save_entry.Flags.Acquired))
+                        {
+                            save.halyn_align.configuration_discrete = 2;
+                            mio.move_to(new Vec_float_3() { Base = new _vec_storage_float_3() { x = -1388.715332f, y = 1551.128906f, z = 0.0f } });
+                        }
+                        break;
+                    case WarpLocations.Checkpoint:
+                        if (Util.MioStringToString(save.checkpoint_id) != "cp_FOCUS_dispatch_zone")
+                        {
+                            if (save.checkpoint_is_temporary)
+                            {
+                                mio.move_to(save.previous_checkpoint_world_pos);
+                            }
+                            else
+                            {
+                                mio.move_to(save.checkpoint_world_pos);
+                            }
+                        }
+                        break;
+                    default:
+                        break;
+
+                }
+                apManager.queuedWarp = WarpLocations.None;
             }
             else if (!satAtCheckpoint) // If you haven't sat at a checkpoint this session (now checks in save slot too)
             {

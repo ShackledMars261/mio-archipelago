@@ -65,7 +65,7 @@
 	</Target>
 
 	<Target Name="PostBuild" AfterTargets="PostBuildEvent">
-		<Exec Command="call &quot;$(ProjectDir)post-build.bat&quot; &quot;$(TargetPath)&quot; &quot;$(ProjectName)&quot; &quot;$(TargetDir)&quot;" WorkingDirectory="$(ProjectDir)" />
+		<Exec Condition="$(OS) == 'Windows_NT'" Command="call &quot;$(ProjectDir)post-build.bat&quot; &quot;$(TargetPath)&quot; &quot;$(ProjectName)&quot; &quot;$(TargetDir)&quot;" WorkingDirectory="$(ProjectDir)" />
 	</Target>
 
 	<PropertyGroup>
