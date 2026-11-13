@@ -734,10 +734,25 @@ namespace MioAP
             return held;
         }
 
+        /// <summary>
+        /// How far through the received-item stream the save has been brought.
+        ///
+        /// Reads entry->count, to mirror what WriteWatermark stores. NOT
+        /// Save::acquired_count, which this used to call: that takes a CATEGORY
+        /// and answers how many acquired entries match it, so it returned 1 as
+        /// soon as the entry existed and the stored value was never read back.
+        /// With a watermark stuck at 1, every item past index 0 was re-granted
+        /// and re-toasted on every connect - and the Nacre and Old Core branches
+        /// of GrantItem add rather than set, so those balances grew each time.
+        /// The other acquired_count call sites are fine: they all use it as a
+        /// "> 0" predicate, which is what it actually answers.
+        /// </summary>
         private static unsafe int ReadWatermark(ref Game game)
         {
             MioGame.String w = Util.StringToMioString(WatermarkEntry);
-            return game.save.acquired_count(&w);
+            Save_entry* entry = game.save.peek(&w);
+
+            return entry != null ? entry->count : 0;
         }
 
         private static unsafe void WriteWatermark(ref Game game, int value)
