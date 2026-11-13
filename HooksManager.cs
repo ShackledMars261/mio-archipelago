@@ -190,6 +190,8 @@ namespace MioAP
             "UNLOCK:GLIDE", "UNLOCK:SPIDER", "UNLOCK:ORB_SHOOT", "UNLOCK:SPIDER_GOO",
         };
 
+        private static readonly string[] ScopeOverseer = { "OVERSEER:"};
+
         /// <summary>
         /// The bunker key. Its pickup is Halyn's terminal rather than a loot
         /// node, so none of the generic pickup scopes cover it - unscoped, a
@@ -537,6 +539,9 @@ namespace MioAP
 
             On.MioGame.On_Game.update_chests2.Hook +=
                 static (orig, self) => { using var s = new Scope(ScopeAllApItems, "update_chests2"); orig(self); };
+
+            On.MioGame.On_Game.update_overseers.Hook +=
+                static (orig, self) => { using var s = new Scope(ScopeOverseer, "Overseer"); orig(self); };
 
             // Bespoke handlers, each tied to specific unlocks.
             On.MioGame.On_GW_tuto_hook.update_GW_tuto_hook.Hook +=
