@@ -299,6 +299,9 @@ namespace MioAP
 
             ToggleDamageLink(GetSlotDataValue("damage_link", 0) == 1);
             ModOptions.damageLink.Value = isDamageLink;
+
+            HooksManager.OverseersUnlockCheckpoints = GetSlotDataValue("fast_travel_unlock", true);
+          
             trinket_costs = GetSlotDataValue("trinket_costs", new JObject()).ToObject(trinket_costs.GetType());
             // LogMessage("==== Trinket Costs ====");
             // foreach( KeyValuePair<string, int> kvp in trinket_costs )
