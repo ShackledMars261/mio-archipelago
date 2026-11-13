@@ -466,6 +466,20 @@ namespace MioAP
                     catch (Exception ex) { LogMessage("[hooks] victory hook failed: " + ex); }
                 };
 
+            On.MioGame.GlobalFunctions.game.On_game.trinket_slot_cost.Hook +=
+                (On.MioGame.GlobalFunctions.game.On_game.orig_trinket_slot_cost orig, MioGame.String* name) =>
+                {
+                    string? sname = MioModdingApi.StringAllocator.FromMioString(name);
+                    foreach( KeyValuePair<string, int> kvp in apManager.trinket_costs )
+                    {
+                        if (sname == kvp.Key)
+                        {
+                            return kvp.Value;
+                        }
+                    }
+                    return orig(name);
+                };
+
             InitShopHooks();
             InitScopeHooks();
 
