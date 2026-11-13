@@ -55,7 +55,7 @@ namespace MioAP
         /// reach players: the symbol table alone is ~11k reflection reads at
         /// startup, and the stack scan runs on every Mio::has call.
         /// </summary>
-        private const bool DiagnosticsWanted = true;
+        private const bool DiagnosticsWanted = false;
 
 #if DEBUG
         private const bool Diagnostics = DiagnosticsWanted;
@@ -190,7 +190,7 @@ namespace MioAP
             "UNLOCK:GLIDE", "UNLOCK:SPIDER", "UNLOCK:ORB_SHOOT", "UNLOCK:SPIDER_GOO",
         };
 
-        private static readonly string[] ScopeOverseer = { "OVERSEER:"};
+        private static readonly string[] ScopeOverseer = { "OVERSEER:" };
 
         /// <summary>
         /// The bunker key. Its pickup is Halyn's terminal rather than a loot
@@ -263,7 +263,44 @@ namespace MioAP
         /// arrives it stays armed and swallows the next legitimate pickup of
         /// that entry instead.
         /// </summary>
-        [ThreadStatic] private static string? _suppressNextLoot;
+        /// <summary>
+        /// Set when an Old Core pickup is intercepted, so the FULL_PEARLS grant
+        /// that follows in the same interaction is dropped too.
+        ///
+        /// Known limitation: a latch with no expiry. If the follow-up never
+        /// arrives it stays armed and swallows the next legitimate pickup of
+        /// that entry instead. A dedicated flag rather than one shared slot,
+        /// which a second pickup could overwrite before the follow-up lands.
+        /// </summary>
+        [ThreadStatic] private static bool _suppressNextPearls;
+
+        /// <summary>
+        /// Undoes the vanilla Crystallized Nacre grant, which cannot be
+        /// intercepted because it is not a loot call.
+        ///
+        /// Game::update_loot pays a Nacre pickup like this:
+        ///
+        ///     loot(carcass_id, NO_LOG);                 // we see this
+        ///     n = loot_node.solid_droplet_count;
+        ///     Save::acquire("RESOURCE:SOLID_DROPLETS")->count += n;
+        ///     loot_node.solid_droplet_count = 0;
+        ///
+        /// A bare acquire plus an add - no Game::loot, no spawn, no hookable
+        /// function in between, which is why RESOURCE:SOLID_DROPLETS appears in
+        /// no log and why nothing done at the loot layer could stop it.
+        ///
+        /// What the loot call does give us is a known-good moment: it runs three
+        /// statements before the add, in the same straight-line block. So the
+        /// balance is noted there and put back on the next fixed update.
+        ///
+        /// Restoring the recorded balance rather than subtracting the amount is
+        /// deliberate - the count is read from the node, not passed to us - and
+        /// it is safe against an Archipelago grant landing in the same frame,
+        /// because the pump runs in fixed_update ahead of update_loot and so is
+        /// already included in the snapshot.
+        /// </summary>
+        [ThreadStatic] private static bool _nacreRollbackPending;
+        [ThreadStatic] private static int _nacreBalanceBefore;
 
         /// <summary>The intro sequence room, where being in the glitch world is alright.</summary>
         private const string GlitchZone = "GW_intro_jump_P1";
@@ -442,6 +479,7 @@ namespace MioAP
 
             // Item and location interception.
             On.MioGame.On_Game.loot_1.Hook += loot_1_Hook;
+
             On.MioGame.On_Mio.has.Hook += mio_has_Hook;
             On.MioGame.On_Mio.has_more_than_zero.Hook += mio_has_more_than_zero_Hook;
             On.MioGame.On_Ui_loot_popup.start.Hook += loot_popup_start_Hook;
@@ -472,7 +510,7 @@ namespace MioAP
                 (On.MioGame.GlobalFunctions.game.On_game.orig_trinket_slot_cost orig, MioGame.String* name) =>
                 {
                     string? sname = MioModdingApi.StringAllocator.FromMioString(name);
-                    foreach( KeyValuePair<string, int> kvp in apManager.trinket_costs )
+                    foreach (KeyValuePair<string, int> kvp in apManager.trinket_costs)
                     {
                         if (sname == kvp.Key)
                         {
@@ -729,6 +767,31 @@ namespace MioAP
 
         private unsafe void fixed_update_Prefix(Game* __this)
         {
+            try
+            {
+                // Before the drain, so an Archipelago Nacre grant applied this
+                // frame lands on the restored balance rather than being undone
+                // by it.
+                if (_nacreRollbackPending)
+                {
+                    _nacreRollbackPending = false;
+
+                    ref Game g = ref MioGame.Globals.game;
+                    Save_entry* balance = AcquireRaw(ref g, NacreEntry);
+
+                    if (balance != null)
+                    {
+#pragma warning disable CS0162
+                        if (Diagnostics)
+                            LogMessage($"[nacre] rollback {balance->count} -> {_nacreBalanceBefore}");
+#pragma warning restore CS0162
+
+                        balance->count = _nacreBalanceBefore;
+                    }
+                }
+            }
+            catch (Exception ex) { LogMessage("[hooks] nacre rollback failed: " + ex); }
+
             try
             {
                 // Ahead of the drain, which bails out at the menu - this has to
@@ -1085,32 +1148,75 @@ namespace MioAP
             try
             {
                 string id = Util.MioStringToString(*item_id);
-                ref Game game = ref MioGame.Globals.game;
 
 #pragma warning disable CS0162
                 if (Diagnostics)
                     LogMessage($"[loot1] '{id}' scope={_scopeName ?? "-"}{ScanStackForGameFrames()}");
 #pragma warning restore CS0162
 
-                // Second half of a carcass pickup: a branch below already sent
-                // the check, so drop the vanilla currency grant that follows.
-                if (_suppressNextLoot != null && id == _suppressNextLoot)
+                if (TryInterceptLoot(id, out Save_entry* taken)) return taken;
+            }
+            catch (Exception ex) { LogMessage("[hooks] loot failed: " + ex); }
+
+            return orig(__this, item_id, count, flags);
+        }
+
+        /// <summary>
+        /// Decides whether the mod is taking a pickup over, for either overload
+        /// of Game::loot.
+        ///
+        /// Returns true when the caller should NOT run the original - the check
+        /// has been sent and the pickup marked consumed - with the save entry to
+        /// hand back in its place. Returns false to let the game grant normally.
+        ///
+        /// Kept separate from the hook itself so the decision lives in one
+        /// place no matter which call site reaches it.
+        /// </summary>
+        private unsafe bool TryInterceptLoot(string id, out Save_entry* result)
+        {
+            result = null;
+
+            {
+                ref Game game = ref MioGame.Globals.game;
+
+                // Second half of an Old Core pickup: a branch below already
+                // sent the check, so drop the vanilla currency grant.
+                if (id == FullPearlsEntry && _suppressNextPearls)
                 {
-                    _suppressNextLoot = null;
+                    _suppressNextPearls = false;
                     MioGame.String e = Util.StringToMioString(id);
-                    return game.save.peek(&e);
+
+                    result = game.save.peek(&e);
+                    return true;
                 }
 
-                // Nacre pickups loot under a unique per-node entry ("CARCASS:0x..."),
-                // which identifies the location exactly.
+                // Crystallized Nacre pickups. Each has a unique per-node entry,
+                // "CARCASS:0x<hash>", which identifies the location exactly.
+                //
+                // Note the collision: the CARCASS category covers two unrelated
+                // things. These per-node entries are Nacre pickups and yield
+                // SOLID_DROPLETS; the NAMED entries ("CARCASS:SOMETHING") are Old
+                // Cores and pay out FULL_PEARLS, handled in the branch below.
+                // Only nacre_carcass.json resolves the per-node form, which is
+                // what separates them here.
                 var carcassLoc = dataManager.GetLocationByCarcassEntry(id);
                 if (carcassLoc != null)
                 {
                     apManager.SendLocationCheck(carcassLoc);
-                    _suppressNextLoot = NacreEntry;
 
-                    // Skipping orig is what suppresses the vanilla Nacre grant.
-                    return AcquireWithCount(ref game, id);
+                    // Three statements from here update_loot adds this pickup's
+                    // Nacre straight onto the balance. Note what it was; the
+                    // next fixed update puts it back.
+                    MioGame.String nacre = Util.StringToMioString(NacreEntry);
+                    Save_entry* before = game.save.peek(&nacre);
+
+                    _nacreBalanceBefore = before != null ? before->count : 0;
+                    _nacreRollbackPending = true;
+
+                    // Skipping the original is what stops the game writing its
+                    // own bookkeeping for a pickup the mod has taken over.
+                    result = AcquireWithCount(ref game, id);
+                    return true;
                 }
 
                 // Liquid Nacre is an AP item but never a location's vanilla item -
@@ -1132,16 +1238,16 @@ namespace MioAP
                     // them and they're listed by name.
                     if (id.StartsWith(CarcassCategory + ":", StringComparison.Ordinal)
                         || DialogOldCores.Contains(id))
-                        _suppressNextLoot = FullPearlsEntry;
+                        _suppressNextPearls = true;
 
                     string consumedEntry = MarksItselfConsumed(id) ? id : DataManager.ShadowEntry(id);
 
-                    return AcquireWithCount(ref game, consumedEntry);
+                    result = AcquireWithCount(ref game, consumedEntry);
+                    return true;
                 }
             }
-            catch (Exception ex) { LogMessage("[hooks] loot failed: " + ex); }
 
-            return orig(__this, item_id, count, flags);
+            return false;
         }
 
         /// <summary>
@@ -1728,6 +1834,7 @@ namespace MioAP
                     Vec_float_3 pos = new();
                     pos.x = -967; pos.y = 1430; pos.z = 0;
                     mio.move_to(pos);
+                    _showToast("DeathLinked!");
                     apManager.queuedDeathLink = false;
                 }
                 else if (mio.life.dead._value)
