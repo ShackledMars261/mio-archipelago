@@ -55,7 +55,7 @@ namespace MioAP
         /// reach players: the symbol table alone is ~11k reflection reads at
         /// startup, and the stack scan runs on every Mio::has call.
         /// </summary>
-        private const bool DiagnosticsWanted = true;
+        private const bool DiagnosticsWanted = false;
 
 #if DEBUG
         private const bool Diagnostics = DiagnosticsWanted;
@@ -190,7 +190,7 @@ namespace MioAP
             "UNLOCK:GLIDE", "UNLOCK:SPIDER", "UNLOCK:ORB_SHOOT", "UNLOCK:SPIDER_GOO",
         };
 
-        private static readonly string[] ScopeOverseer = { "OVERSEER:"};
+        private static readonly string[] ScopeOverseer = { "OVERSEER:" };
 
         /// <summary>
         /// The bunker key. Its pickup is Halyn's terminal rather than a loot
@@ -263,7 +263,44 @@ namespace MioAP
         /// arrives it stays armed and swallows the next legitimate pickup of
         /// that entry instead.
         /// </summary>
-        [ThreadStatic] private static string? _suppressNextLoot;
+        /// <summary>
+        /// Set when an Old Core pickup is intercepted, so the FULL_PEARLS grant
+        /// that follows in the same interaction is dropped too.
+        ///
+        /// Known limitation: a latch with no expiry. If the follow-up never
+        /// arrives it stays armed and swallows the next legitimate pickup of
+        /// that entry instead. A dedicated flag rather than one shared slot,
+        /// which a second pickup could overwrite before the follow-up lands.
+        /// </summary>
+        [ThreadStatic] private static bool _suppressNextPearls;
+
+        /// <summary>
+        /// Undoes the vanilla Crystallized Nacre grant, which cannot be
+        /// intercepted because it is not a loot call.
+        ///
+        /// Game::update_loot pays a Nacre pickup like this:
+        ///
+        ///     loot(carcass_id, NO_LOG);                 // we see this
+        ///     n = loot_node.solid_droplet_count;
+        ///     Save::acquire("RESOURCE:SOLID_DROPLETS")->count += n;
+        ///     loot_node.solid_droplet_count = 0;
+        ///
+        /// A bare acquire plus an add - no Game::loot, no spawn, no hookable
+        /// function in between, which is why RESOURCE:SOLID_DROPLETS appears in
+        /// no log and why nothing done at the loot layer could stop it.
+        ///
+        /// What the loot call does give us is a known-good moment: it runs three
+        /// statements before the add, in the same straight-line block. So the
+        /// balance is noted there and put back on the next fixed update.
+        ///
+        /// Restoring the recorded balance rather than subtracting the amount is
+        /// deliberate - the count is read from the node, not passed to us - and
+        /// it is safe against an Archipelago grant landing in the same frame,
+        /// because the pump runs in fixed_update ahead of update_loot and so is
+        /// already included in the snapshot.
+        /// </summary>
+        [ThreadStatic] private static bool _nacreRollbackPending;
+        [ThreadStatic] private static int _nacreBalanceBefore;
 
         /// <summary>The intro sequence room, where being in the glitch world is alright.</summary>
         private const string GlitchZone = "GW_intro_jump_P1";
@@ -442,6 +479,7 @@ namespace MioAP
 
             // Item and location interception.
             On.MioGame.On_Game.loot_1.Hook += loot_1_Hook;
+
             On.MioGame.On_Mio.has.Hook += mio_has_Hook;
             On.MioGame.On_Mio.has_more_than_zero.Hook += mio_has_more_than_zero_Hook;
             On.MioGame.On_Ui_loot_popup.start.Hook += loot_popup_start_Hook;
@@ -472,7 +510,7 @@ namespace MioAP
                 (On.MioGame.GlobalFunctions.game.On_game.orig_trinket_slot_cost orig, MioGame.String* name) =>
                 {
                     string? sname = MioModdingApi.StringAllocator.FromMioString(name);
-                    foreach( KeyValuePair<string, int> kvp in apManager.trinket_costs )
+                    foreach (KeyValuePair<string, int> kvp in apManager.trinket_costs)
                     {
                         if (sname == kvp.Key)
                         {
@@ -696,10 +734,25 @@ namespace MioAP
             return held;
         }
 
+        /// <summary>
+        /// How far through the received-item stream the save has been brought.
+        ///
+        /// Reads entry->count, to mirror what WriteWatermark stores. NOT
+        /// Save::acquired_count, which this used to call: that takes a CATEGORY
+        /// and answers how many acquired entries match it, so it returned 1 as
+        /// soon as the entry existed and the stored value was never read back.
+        /// With a watermark stuck at 1, every item past index 0 was re-granted
+        /// and re-toasted on every connect - and the Nacre and Old Core branches
+        /// of GrantItem add rather than set, so those balances grew each time.
+        /// The other acquired_count call sites are fine: they all use it as a
+        /// "> 0" predicate, which is what it actually answers.
+        /// </summary>
         private static unsafe int ReadWatermark(ref Game game)
         {
             MioGame.String w = Util.StringToMioString(WatermarkEntry);
-            return game.save.acquired_count(&w);
+            Save_entry* entry = game.save.peek(&w);
+
+            return entry != null ? entry->count : 0;
         }
 
         private static unsafe void WriteWatermark(ref Game game, int value)
@@ -731,10 +784,43 @@ namespace MioAP
         {
             try
             {
+                // Before the drain, so an Archipelago Nacre grant applied this
+                // frame lands on the restored balance rather than being undone
+                // by it.
+                if (_nacreRollbackPending)
+                {
+                    _nacreRollbackPending = false;
+
+                    ref Game g = ref MioGame.Globals.game;
+                    Save_entry* balance = AcquireRaw(ref g, NacreEntry);
+
+                    if (balance != null)
+                    {
+#pragma warning disable CS0162
+                        if (Diagnostics)
+                            LogMessage($"[nacre] rollback {balance->count} -> {_nacreBalanceBefore}");
+#pragma warning restore CS0162
+
+                        balance->count = _nacreBalanceBefore;
+                    }
+                }
+            }
+            catch (Exception ex) { LogMessage("[hooks] nacre rollback failed: " + ex); }
+
+            try
+            {
                 // Ahead of the drain, which bails out at the menu - this has to
                 // keep up with the room either way or it latches on stale state.
                 string room = Util.MioStringToString(MioGame.Globals.game.current_zone_id);
                 _inBunkerPickupRoom = Array.IndexOf(BunkerPickupRooms, room) >= 0;
+
+                // Entering the game from the menu is a save load.
+                bool inGame = IsSaveReady();
+                if (inGame != _wasInGame)
+                {
+                    _wasInGame = inGame;
+                    if (inGame) ResetRunState();
+                }
             }
             catch (Exception ex) { LogMessage("[hooks] room refresh failed: " + ex); }
 
@@ -1085,32 +1171,75 @@ namespace MioAP
             try
             {
                 string id = Util.MioStringToString(*item_id);
-                ref Game game = ref MioGame.Globals.game;
 
 #pragma warning disable CS0162
                 if (Diagnostics)
                     LogMessage($"[loot1] '{id}' scope={_scopeName ?? "-"}{ScanStackForGameFrames()}");
 #pragma warning restore CS0162
 
-                // Second half of a carcass pickup: a branch below already sent
-                // the check, so drop the vanilla currency grant that follows.
-                if (_suppressNextLoot != null && id == _suppressNextLoot)
+                if (TryInterceptLoot(id, out Save_entry* taken)) return taken;
+            }
+            catch (Exception ex) { LogMessage("[hooks] loot failed: " + ex); }
+
+            return orig(__this, item_id, count, flags);
+        }
+
+        /// <summary>
+        /// Decides whether the mod is taking a pickup over, for either overload
+        /// of Game::loot.
+        ///
+        /// Returns true when the caller should NOT run the original - the check
+        /// has been sent and the pickup marked consumed - with the save entry to
+        /// hand back in its place. Returns false to let the game grant normally.
+        ///
+        /// Kept separate from the hook itself so the decision lives in one
+        /// place no matter which call site reaches it.
+        /// </summary>
+        private unsafe bool TryInterceptLoot(string id, out Save_entry* result)
+        {
+            result = null;
+
+            {
+                ref Game game = ref MioGame.Globals.game;
+
+                // Second half of an Old Core pickup: a branch below already
+                // sent the check, so drop the vanilla currency grant.
+                if (id == FullPearlsEntry && _suppressNextPearls)
                 {
-                    _suppressNextLoot = null;
+                    _suppressNextPearls = false;
                     MioGame.String e = Util.StringToMioString(id);
-                    return game.save.peek(&e);
+
+                    result = game.save.peek(&e);
+                    return true;
                 }
 
-                // Nacre pickups loot under a unique per-node entry ("CARCASS:0x..."),
-                // which identifies the location exactly.
+                // Crystallized Nacre pickups. Each has a unique per-node entry,
+                // "CARCASS:0x<hash>", which identifies the location exactly.
+                //
+                // Note the collision: the CARCASS category covers two unrelated
+                // things. These per-node entries are Nacre pickups and yield
+                // SOLID_DROPLETS; the NAMED entries ("CARCASS:SOMETHING") are Old
+                // Cores and pay out FULL_PEARLS, handled in the branch below.
+                // Only nacre_carcass.json resolves the per-node form, which is
+                // what separates them here.
                 var carcassLoc = dataManager.GetLocationByCarcassEntry(id);
                 if (carcassLoc != null)
                 {
                     apManager.SendLocationCheck(carcassLoc);
-                    _suppressNextLoot = NacreEntry;
 
-                    // Skipping orig is what suppresses the vanilla Nacre grant.
-                    return AcquireWithCount(ref game, id);
+                    // Three statements from here update_loot adds this pickup's
+                    // Nacre straight onto the balance. Note what it was; the
+                    // next fixed update puts it back.
+                    MioGame.String nacre = Util.StringToMioString(NacreEntry);
+                    Save_entry* before = game.save.peek(&nacre);
+
+                    _nacreBalanceBefore = before != null ? before->count : 0;
+                    _nacreRollbackPending = true;
+
+                    // Skipping the original is what stops the game writing its
+                    // own bookkeeping for a pickup the mod has taken over.
+                    result = AcquireWithCount(ref game, id);
+                    return true;
                 }
 
                 // Liquid Nacre is an AP item but never a location's vanilla item -
@@ -1132,16 +1261,16 @@ namespace MioAP
                     // them and they're listed by name.
                     if (id.StartsWith(CarcassCategory + ":", StringComparison.Ordinal)
                         || DialogOldCores.Contains(id))
-                        _suppressNextLoot = FullPearlsEntry;
+                        _suppressNextPearls = true;
 
                     string consumedEntry = MarksItselfConsumed(id) ? id : DataManager.ShadowEntry(id);
 
-                    return AcquireWithCount(ref game, consumedEntry);
+                    result = AcquireWithCount(ref game, consumedEntry);
+                    return true;
                 }
             }
-            catch (Exception ex) { LogMessage("[hooks] loot failed: " + ex); }
 
-            return orig(__this, item_id, count, flags);
+            return false;
         }
 
         /// <summary>
@@ -1637,9 +1766,33 @@ namespace MioAP
         private Vec_float_3 zeroVector = new Vec_float_3() { Base = new _vec_storage_float_3() { x = 0.0f, y = 0.0f, z = 0.0f } };
         public static bool queuedRespawn;
         private int staggerFrames = 3;
-        private int startDelay = 20;
+        private const int StartDelayFrames = 20;
+        private int startDelay = StartDelayFrames;
         private bool satAtCheckpoint = false;
         private bool finishedIntro = false;
+
+        /// <summary>
+        /// Whether the last frame was in-game, so a save load can be spotted.
+        /// The run-state flags below are per-run, but HooksManager is built once
+        /// per process, so without this they leak from one load into the next -
+        /// a save with checkpoints would leave satAtCheckpoint set and suppress
+        /// the warp on a fresh save loaded afterwards.
+        /// </summary>
+        private bool _wasInGame;
+
+        /// <summary>
+        /// Clears the per-run starting-location state. queuedRespawn is left
+        /// alone deliberately: UseSlotData arms it when the session connects,
+        /// which races this, and clearing it would drop the warp a fresh save
+        /// is waiting for.
+        /// </summary>
+        private void ResetRunState()
+        {
+            satAtCheckpoint = false;
+            finishedIntro = false;
+            startDelay = StartDelayFrames;
+            staggerFrames = 3;
+        }
 
 
         private unsafe void ProcessOtherArchipelago(Game* __this)
@@ -1669,7 +1822,29 @@ namespace MioAP
 
             if (!satAtCheckpoint)
             {
-                if (mio.checkpoint.state._value != Mio.Checkpoint.State.None || Util.MioStringToString(save.previous_checkpoint_id) != "cp_FOCUS_dispatch_zone")
+                // cp_FOCUS_dispatch_zone, where a vanilla run begins, is a
+                // TEMPORARY checkpoint - so "has this player reached a real
+                // checkpoint" is exactly checkpoint_is_temporary, and no id
+                // matching is needed. The flag sits in the serialized respawn
+                // block (checkpoint_id / _world_pos / _wrap_index /
+                // _is_temporary, 0x70-0x90), so it is the state the save was
+                // loaded with rather than runtime bookkeeping.
+                //
+                // An empty id means nothing is recorded yet, which is a brand
+                // new run - that case does want the warp.
+                string checkpoint = Util.MioStringToString(save.checkpoint_id);
+
+                bool atRealCheckpoint = checkpoint.Length != 0 && !save.checkpoint_is_temporary;
+
+#pragma warning disable CS0162
+                if (Diagnostics)
+                    LogMessage($"[startloc] cp='{checkpoint}' temp={save.checkpoint_is_temporary} " +
+                               $"prev='{Util.MioStringToString(save.previous_checkpoint_id)}' " +
+                               $"mioCp={mio.checkpoint.state._value} real={atRealCheckpoint} " +
+                               $"respawnQueued={queuedRespawn} dead={mio.life.dead._value}");
+#pragma warning restore CS0162
+
+                if (atRealCheckpoint)
                 {
                     satAtCheckpoint = true;
                     return;
@@ -1728,6 +1903,7 @@ namespace MioAP
                     Vec_float_3 pos = new();
                     pos.x = -967; pos.y = 1430; pos.z = 0;
                     mio.move_to(pos);
+                    _showToast("DeathLinked!");
                     apManager.queuedDeathLink = false;
                 }
                 else if (mio.life.dead._value)

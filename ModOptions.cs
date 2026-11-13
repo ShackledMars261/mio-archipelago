@@ -53,8 +53,18 @@ namespace MioAP
                 );
         }
 
-        /// <summary>Runs a button's action now and again whenever it is pressed.</summary>
-        internal static void Bind(ButtonOption button, Action apply, bool runInitial = true)
+        /// <summary>
+        /// Runs a button's action whenever it is pressed.
+        ///
+        /// runInitial defaults to false, unlike the toggle and number
+        /// overloads. Those apply a stored value, and applying it once at
+        /// startup is the whole point; a button has no value, so running it at
+        /// startup is pressing it on the player's behalf. That is what warped
+        /// everyone to their starting room on the first save load of a session:
+        /// the teleport button fired during CreateOptionBindings and left
+        /// queuedWarp armed.
+        /// </summary>
+        internal static void Bind(ButtonOption button, Action apply, bool runInitial = false)
         {
             if (runInitial) apply();
             button.Pressed += apply;
@@ -81,7 +91,7 @@ namespace MioAP
             Bind(deathLink, apManager.ToggleDeathLink);
             Bind(knockbackLink, apManager.ToggleKnockbackLink);
             Bind(damageLink, apManager.ToggleDamageLink);
-            Bind(teleportToStart, () => apManager.queuedWarp = true);
+            Bind(teleportToStart, () => apManager.queuedWarp = true, runInitial: false);
 #pragma warning restore CS8604 // Possible null reference argument.
         }
     }
