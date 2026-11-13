@@ -798,6 +798,14 @@ namespace MioAP
                 // keep up with the room either way or it latches on stale state.
                 string room = Util.MioStringToString(MioGame.Globals.game.current_zone_id);
                 _inBunkerPickupRoom = Array.IndexOf(BunkerPickupRooms, room) >= 0;
+
+                // Entering the game from the menu is a save load.
+                bool inGame = IsSaveReady();
+                if (inGame != _wasInGame)
+                {
+                    _wasInGame = inGame;
+                    if (inGame) ResetRunState();
+                }
             }
             catch (Exception ex) { LogMessage("[hooks] room refresh failed: " + ex); }
 
@@ -1743,9 +1751,33 @@ namespace MioAP
         private Vec_float_3 zeroVector = new Vec_float_3() { Base = new _vec_storage_float_3() { x = 0.0f, y = 0.0f, z = 0.0f } };
         public static bool queuedRespawn;
         private int staggerFrames = 3;
-        private int startDelay = 20;
+        private const int StartDelayFrames = 20;
+        private int startDelay = StartDelayFrames;
         private bool satAtCheckpoint = false;
         private bool finishedIntro = false;
+
+        /// <summary>
+        /// Whether the last frame was in-game, so a save load can be spotted.
+        /// The run-state flags below are per-run, but HooksManager is built once
+        /// per process, so without this they leak from one load into the next -
+        /// a save with checkpoints would leave satAtCheckpoint set and suppress
+        /// the warp on a fresh save loaded afterwards.
+        /// </summary>
+        private bool _wasInGame;
+
+        /// <summary>
+        /// Clears the per-run starting-location state. queuedRespawn is left
+        /// alone deliberately: UseSlotData arms it when the session connects,
+        /// which races this, and clearing it would drop the warp a fresh save
+        /// is waiting for.
+        /// </summary>
+        private void ResetRunState()
+        {
+            satAtCheckpoint = false;
+            finishedIntro = false;
+            startDelay = StartDelayFrames;
+            staggerFrames = 3;
+        }
 
 
         private unsafe void ProcessOtherArchipelago(Game* __this)
@@ -1775,7 +1807,29 @@ namespace MioAP
 
             if (!satAtCheckpoint)
             {
-                if (mio.checkpoint.state._value != Mio.Checkpoint.State.None || Util.MioStringToString(save.previous_checkpoint_id) != "cp_FOCUS_dispatch_zone")
+                // cp_FOCUS_dispatch_zone, where a vanilla run begins, is a
+                // TEMPORARY checkpoint - so "has this player reached a real
+                // checkpoint" is exactly checkpoint_is_temporary, and no id
+                // matching is needed. The flag sits in the serialized respawn
+                // block (checkpoint_id / _world_pos / _wrap_index /
+                // _is_temporary, 0x70-0x90), so it is the state the save was
+                // loaded with rather than runtime bookkeeping.
+                //
+                // An empty id means nothing is recorded yet, which is a brand
+                // new run - that case does want the warp.
+                string checkpoint = Util.MioStringToString(save.checkpoint_id);
+
+                bool atRealCheckpoint = checkpoint.Length != 0 && !save.checkpoint_is_temporary;
+
+#pragma warning disable CS0162
+                if (Diagnostics)
+                    LogMessage($"[startloc] cp='{checkpoint}' temp={save.checkpoint_is_temporary} " +
+                               $"prev='{Util.MioStringToString(save.previous_checkpoint_id)}' " +
+                               $"mioCp={mio.checkpoint.state._value} real={atRealCheckpoint} " +
+                               $"respawnQueued={queuedRespawn} dead={mio.life.dead._value}");
+#pragma warning restore CS0162
+
+                if (atRealCheckpoint)
                 {
                     satAtCheckpoint = true;
                     return;
