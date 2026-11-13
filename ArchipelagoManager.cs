@@ -813,7 +813,7 @@ namespace MioAP
             new Vector2(-2898, 1871), // LQ_city_hall_C2
             new Vector2(-66, 2089), // GA_vin_terrace_P3
             new Vector2(-3851, 1780), // LQ_vin_intro
-            new Vector2(-66, 2089), // GA_root_conex_P2
+            new Vector2(-908, 1593), // GA_root_conex_P2
         ];
 
         public static MioGame.Vec_float_3 GetStartingPosition(int index)
