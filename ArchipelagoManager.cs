@@ -21,6 +21,14 @@ namespace MioAP
         Failed,
     }
 
+    internal enum WarpLocations
+    {
+        None,
+        Start,
+        Nexus,
+        Checkpoint,
+    }
+
     /// <summary>What a scouted location holds, as the shop presents it.</summary>
     internal readonly record struct ScoutedOffer(string Name, string Description);
 
@@ -805,7 +813,7 @@ namespace MioAP
 
 
         public MioGame.Vec_float_3 startingPosition;
-        public bool queuedWarp = false;
+        public WarpLocations queuedWarp = WarpLocations.None;
 
         public static readonly Vector2[] StartingLocations =
         [

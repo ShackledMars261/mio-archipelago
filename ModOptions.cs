@@ -15,6 +15,8 @@ namespace MioAP
         public static ToggleOption? damageLink;
 
         private static ButtonOption? teleportToStart;
+        private static ButtonOption? teleportToNexus;
+        private static ButtonOption? teleportToCheckpoint;
 
         /// <summary>Registers the mod's page.</summary>
         internal static void Register(MioAPMod mod)
@@ -51,6 +53,14 @@ namespace MioAP
                 "teleport_to_start", "Teleport to start",
                 description: "Teleports you back to your starting room."
                 );
+            teleportToNexus = page.RegisterButton(
+                "teleport_to_necus", "Teleport to Nexus",
+                description: "Teleports you back to the Nexus."
+                );
+            teleportToCheckpoint = page.RegisterButton(
+                "teleport_to_checkpoint", "Teleport to checkpoint",
+                description: "Teleports you back to the most recent non-temporary checkpoint."
+                );
         }
 
         /// <summary>Runs a button's action now and again whenever it is pressed.</summary>
@@ -81,7 +91,9 @@ namespace MioAP
             Bind(deathLink, apManager.ToggleDeathLink);
             Bind(knockbackLink, apManager.ToggleKnockbackLink);
             Bind(damageLink, apManager.ToggleDamageLink);
-            Bind(teleportToStart, () => apManager.queuedWarp = true);
+            Bind(teleportToStart, () => apManager.queuedWarp = WarpLocations.Start);
+            Bind(teleportToNexus, () => apManager.queuedWarp = WarpLocations.Nexus);
+            Bind(teleportToCheckpoint, () => apManager.queuedWarp = WarpLocations.Checkpoint);
 #pragma warning restore CS8604 // Possible null reference argument.
         }
     }
