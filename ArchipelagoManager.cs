@@ -307,6 +307,17 @@ namespace MioAP
 
             ToggleDamageLink(GetSlotDataValue("damage_link", 0) == 1);
             ModOptions.damageLink.Value = isDamageLink;
+
+            HooksManager.OverseersUnlockCheckpoints = GetSlotDataValue("fast_travel_unlock", true);
+          
+            trinket_costs = GetSlotDataValue("trinket_costs", new JObject()).ToObject(trinket_costs.GetType());
+            // LogMessage("==== Trinket Costs ====");
+            // foreach( KeyValuePair<string, int> kvp in trinket_costs )
+            // {
+            //     LogMessage(String.Format("{0} costs {1}",
+            //         kvp.Key, kvp.Value));
+            // }
+            // LogMessage("==== Trinket Costs End ====");
 #pragma warning restore CS8602 // Deference of a possibly null reference.
         }
 
@@ -846,6 +857,8 @@ namespace MioAP
 
         public Guid uuid = Guid.NewGuid();
 
+        public Dictionary<string, int> trinket_costs = [];
+        
         public bool isDeathLink = false;
         public bool queuedDeathLink = false;
         public long lastDeathLinkTime = 0;

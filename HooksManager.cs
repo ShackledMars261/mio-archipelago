@@ -190,6 +190,8 @@ namespace MioAP
             "UNLOCK:GLIDE", "UNLOCK:SPIDER", "UNLOCK:ORB_SHOOT", "UNLOCK:SPIDER_GOO",
         };
 
+        private static readonly string[] ScopeOverseer = { "OVERSEER:"};
+
         /// <summary>
         /// The bunker key. Its pickup is Halyn's terminal rather than a loot
         /// node, so none of the generic pickup scopes cover it - unscoped, a
@@ -466,6 +468,20 @@ namespace MioAP
                     catch (Exception ex) { LogMessage("[hooks] victory hook failed: " + ex); }
                 };
 
+            On.MioGame.GlobalFunctions.game.On_game.trinket_slot_cost.Hook +=
+                (On.MioGame.GlobalFunctions.game.On_game.orig_trinket_slot_cost orig, MioGame.String* name) =>
+                {
+                    string? sname = MioModdingApi.StringAllocator.FromMioString(name);
+                    foreach( KeyValuePair<string, int> kvp in apManager.trinket_costs )
+                    {
+                        if (sname == kvp.Key)
+                        {
+                            return kvp.Value;
+                        }
+                    }
+                    return orig(name);
+                };
+
             InitShopHooks();
             InitScopeHooks();
 
@@ -523,6 +539,9 @@ namespace MioAP
 
             On.MioGame.On_Game.update_chests2.Hook +=
                 static (orig, self) => { using var s = new Scope(ScopeAllApItems, "update_chests2"); orig(self); };
+
+            On.MioGame.On_Game.update_overseers.Hook +=
+                static (orig, self) => { using var s = new Scope(ScopeOverseer, "Overseer"); orig(self); };
 
             // Bespoke handlers, each tied to specific unlocks.
             On.MioGame.On_GW_tuto_hook.update_GW_tuto_hook.Hook +=
@@ -622,13 +641,15 @@ namespace MioAP
             return DefaultGrantCount;
         }
 
+        public static bool OverseersUnlockCheckpoints = true;
+
         /// <summary>
         /// Acquires a save entry and applies its configured count. Returns the
         /// entry so loot hooks can hand it straight back.
         /// </summary>
         private static unsafe Save_entry* AcquireWithCount(ref Game game, string saveEntry)
         {
-            if (saveEntry.Split(":")[0] == "OVERSEER")
+            if (saveEntry.Split(":")[0] == "OVERSEER" && OverseersUnlockCheckpoints)
             {
                 MioGame.String checkpoint = Util.StringToMioString(saveEntry.Replace("OVERSEER", "CHECKPOINT"));
                 game.save.acquire(&checkpoint);
