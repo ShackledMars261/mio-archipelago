@@ -7,7 +7,8 @@ For those who would like a video tutorial, one can be found [here](https://www.y
 1. MAKE SURE DOTNET 8 IS INSTALLED!!!
 2. Install the [mod loader](https://github.com/MIO-Modding/mod-loader)
 3. Run the game, and then close it
-4. Download the most recent zip from releases and put it's contents in your mods folder. The path should look something like "MIO/mods/MioAP/MioAP.dll"
+4. Download and install the [modding api](https://github.com/MIO-Modding/mio-modding-api)
+5. Download the most recent zip from releases and put its contents in your mods folder. The path should look something like "MIO/mods/MioAP/MioAP.dll"
 
 ## Running
 1. Run the game
