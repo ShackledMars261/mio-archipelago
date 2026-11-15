@@ -300,8 +300,8 @@ namespace MioAP
             ToggleDamageLink(GetSlotDataValue("damage_link", 0) == 1);
             ModOptions.damageLink.Value = isDamageLink;
 
-            HooksManager.OverseersUnlockCheckpoints = GetSlotDataValue("fast_travel_unlock", true);
-          
+            HooksManager.OverseersUnlockCheckpoints = GetSlotDataValue("fast_travel_unlock", 1) == 1;
+
             trinket_costs = GetSlotDataValue("trinket_costs", new JObject()).ToObject(trinket_costs.GetType());
             // LogMessage("==== Trinket Costs ====");
             // foreach( KeyValuePair<string, int> kvp in trinket_costs )
@@ -813,7 +813,7 @@ namespace MioAP
             new Vector2(-2898, 1871), // LQ_city_hall_C2
             new Vector2(-66, 2089), // GA_vin_terrace_P3
             new Vector2(-3851, 1780), // LQ_vin_intro
-            new Vector2(-66, 2089), // GA_root_conex_P2
+            new Vector2(-908, 1593), // GA_root_conex_P2
         ];
 
         public static MioGame.Vec_float_3 GetStartingPosition(int index)
@@ -850,7 +850,7 @@ namespace MioAP
         public Guid uuid = Guid.NewGuid();
 
         public Dictionary<string, int> trinket_costs = [];
-        
+
         public bool isDeathLink = false;
         public bool queuedDeathLink = false;
         public long lastDeathLinkTime = 0;

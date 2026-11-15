@@ -13,8 +13,8 @@ MIOModding-ModdingAPI = "2.0.3"
 
 
 [build]
-icon = "./icon.png"
-readme = "./README.md"
+icon = "./assets/icon.png"
+readme = "./THUNDERSTORE_README.md"
 outdir = "./build"
 
 [[build.copy]]
