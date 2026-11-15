@@ -1617,13 +1617,15 @@ namespace MioAP
         public static bool queuedRespawn;
         private int staggerFrames = 3;
         private int startDelay = 20;
+        private int initialWarpDelay = 30;
+        private bool initialWarp = false;
         private bool satAtCheckpoint = false;
         private bool finishedIntro = false;
 
 
         private unsafe void ProcessOtherArchipelago(Game* __this)
         {
-            if (startDelay > 0)
+            if (startDelay > 1)
             {
                 startDelay--;
                 return;
@@ -1631,6 +1633,15 @@ namespace MioAP
 
             ref var mio = ref __this->mio;
             ref var save = ref __this->save;
+
+            if (startDelay == 1)
+            {
+                if (Util.MioStringToString(save.checkpoint_id) == "cp_FOCUS_dispatch_zone")
+                {
+                    initialWarp = true;
+                }
+                startDelay = 0;
+            }
 
             if (mio.cutscene.active) return;
             if (!finishedIntro)
@@ -1648,7 +1659,7 @@ namespace MioAP
 
             if (!satAtCheckpoint)
             {
-                if (mio.checkpoint.state._value != Mio.Checkpoint.State.None || Util.MioStringToString(save.previous_checkpoint_id) != "cp_FOCUS_dispatch_zone")
+                if (mio.checkpoint.state._value != Mio.Checkpoint.State.None || Util.MioStringToString(save.checkpoint_id) != "cp_FOCUS_dispatch_zone")
                 {
                     satAtCheckpoint = true;
                     return;
@@ -1667,7 +1678,19 @@ namespace MioAP
                 }
             }
 
-            if (apManager.queuedWarp) //  Only set (to true) by the button
+            if (initialWarp)
+            {
+                if (initialWarpDelay > 0)
+                {
+                    initialWarpDelay--;
+                }
+                else
+                {
+                    initialWarp = false;
+                    apManager.queuedWarp = true;
+                }
+            }
+            else if (apManager.queuedWarp) //  Only set (to true) by the button
             {
                 save.halyn_align.configuration_discrete = 2;
                 mio.move_to(apManager.startingPosition);

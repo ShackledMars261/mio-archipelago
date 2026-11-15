@@ -82,6 +82,7 @@ namespace MioAP
             Bind(knockbackLink, apManager.ToggleKnockbackLink);
             Bind(damageLink, apManager.ToggleDamageLink);
             Bind(teleportToStart, () => apManager.queuedWarp = true);
+            apManager.queuedWarp = false;
 #pragma warning restore CS8604 // Possible null reference argument.
         }
     }
