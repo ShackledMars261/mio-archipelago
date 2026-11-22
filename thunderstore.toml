@@ -4,12 +4,12 @@ schemaVersion = "0.0.1"
 [package]
 namespace = "ShackledMars261"
 name = "Archipelago"
-versionNumber = "0.0.2"
+versionNumber = "0.0.3"
 description = "Archipelago Randomizer implementation for MIO: Memories in Orbit"
 websiteUrl = "https://github.com/ShackledMars261/mio-archipelago"
 containsNsfwContent = false
 [package.dependencies]
-MIOModding-ModdingAPI = "2.0.3"
+MIOModding-ModdingAPI = "2.1.0"
 
 
 [build]
