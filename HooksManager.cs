@@ -1794,6 +1794,8 @@ namespace MioAP
             staggerFrames = 3;
         }
 
+        public static MenuKeyPoller? teleportKeybind;
+
 
         private unsafe void ProcessOtherArchipelago(Game* __this)
         {
@@ -1861,6 +1863,11 @@ namespace MioAP
                     MioGame.String introEntry = Util.StringToMioString("CODE:HACKER_REBORN");
                     save.acquire(&introEntry);
                 }
+            }
+
+            if (teleportKeybind.Pressed(false))
+            {
+                apManager.queuedWarp = true;
             }
 
             if (apManager.queuedWarp) //  Only set (to true) by the button

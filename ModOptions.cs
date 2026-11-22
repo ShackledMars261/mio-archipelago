@@ -15,6 +15,7 @@ namespace MioAP
         public static ToggleOption? damageLink;
 
         private static ButtonOption? teleportToStart;
+        private static KeybindOption? teleportKeybind;
 
         /// <summary>Registers the mod's page.</summary>
         internal static void Register(MioAPMod mod)
@@ -51,6 +52,9 @@ namespace MioAP
                 "teleport_to_start", "Teleport to start",
                 description: "Teleports you back to your starting room."
                 );
+            teleportKeybind = page.RegisterKeybind(
+                "teleport_keybind", "Teleport to start keybind",
+                controller: false);
         }
 
         /// <summary>
@@ -92,6 +96,7 @@ namespace MioAP
             Bind(knockbackLink, apManager.ToggleKnockbackLink);
             Bind(damageLink, apManager.ToggleDamageLink);
             Bind(teleportToStart, () => apManager.queuedWarp = true, runInitial: false);
+            HooksManager.teleportKeybind = new(teleportKeybind);
 #pragma warning restore CS8604 // Possible null reference argument.
         }
     }
