@@ -1824,29 +1824,7 @@ namespace MioAP
 
             if (!satAtCheckpoint)
             {
-                // cp_FOCUS_dispatch_zone, where a vanilla run begins, is a
-                // TEMPORARY checkpoint - so "has this player reached a real
-                // checkpoint" is exactly checkpoint_is_temporary, and no id
-                // matching is needed. The flag sits in the serialized respawn
-                // block (checkpoint_id / _world_pos / _wrap_index /
-                // _is_temporary, 0x70-0x90), so it is the state the save was
-                // loaded with rather than runtime bookkeeping.
-                //
-                // An empty id means nothing is recorded yet, which is a brand
-                // new run - that case does want the warp.
-                string checkpoint = Util.MioStringToString(save.checkpoint_id);
-
-                bool atRealCheckpoint = checkpoint.Length != 0 && !save.checkpoint_is_temporary;
-
-#pragma warning disable CS0162
-                if (Diagnostics)
-                    LogMessage($"[startloc] cp='{checkpoint}' temp={save.checkpoint_is_temporary} " +
-                               $"prev='{Util.MioStringToString(save.previous_checkpoint_id)}' " +
-                               $"mioCp={mio.checkpoint.state._value} real={atRealCheckpoint} " +
-                               $"respawnQueued={queuedRespawn} dead={mio.life.dead._value}");
-#pragma warning restore CS0162
-
-                if (atRealCheckpoint)
+                if (Util.MioStringToString(save.checkpoint_id) != "cp_FOCUS_dispatch_zone")
                 {
                     satAtCheckpoint = true;
                     return;
@@ -1864,13 +1842,12 @@ namespace MioAP
                     save.acquire(&introEntry);
                 }
             }
-
             if (teleportKeybind.Pressed(false))
             {
                 apManager.queuedWarp = true;
             }
 
-            if (apManager.queuedWarp) //  Only set (to true) by the button
+            if (apManager.queuedWarp) //  Only set (to true) by the button, and the end of initial warp
             {
                 save.halyn_align.configuration_discrete = 2;
                 mio.move_to(apManager.startingPosition);
