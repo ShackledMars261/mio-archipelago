@@ -42,7 +42,7 @@ namespace MioAP
     /// </summary>
     internal sealed class ConnectionStore
     {
-        private const string FilePath = @".\mods\MioAP\saved_connections.json";
+        private readonly string FilePath = Path.Combine(MioAPMod.Instance!.GetModFolderPath(), "saved_connections.json");
 
         private readonly Action<string> _log;
         private Dictionary<string, ConnectionDetails> _bySlot = new();
