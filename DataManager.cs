@@ -70,7 +70,7 @@ namespace MioAP
         {
             _loggingCBMethod = loggingCBMethod;
 
-            using (StreamReader file = File.OpenText(@".\mods\MioAP\client.json"))
+            using (StreamReader file = File.OpenText(Path.Combine(MioAPMod.Instance!.GetModFolderPath(), "client.json")))
             {
                 var serializer = new JsonSerializer();
                 jsonData = (JsonSchema)serializer.Deserialize(file, typeof(JsonSchema))!;
@@ -144,7 +144,7 @@ namespace MioAP
 
         private void LoadCarcassMap()
         {
-            string path = @".\mods\MioAP\nacre_carcass.json";
+            string path = Path.Combine(MioAPMod.Instance!.GetModFolderPath(), "nacre_carcass.json");
             if (!File.Exists(path))
             {
                 LogMessage($"[data] WARNING: {path} not found - Nacre pickups will not be checked");
